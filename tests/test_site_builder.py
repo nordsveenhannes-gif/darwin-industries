@@ -80,6 +80,21 @@ class WebsiteBuilderTests(unittest.TestCase):
             self.assertIn("/api/quote", app_js)
             self.assertIn("Disallow: /", robots)
 
+    def test_design_system_is_rendered_into_css(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "site"
+            spec = self.sample_spec()
+            spec.design_system.primary_hex = "#123456"
+            spec.design_system.secondary_hex = "#654321"
+            spec.design_system.accent_hex = "#AA8844"
+            spec.design_system.heading_style = "modern"
+            render_site(spec, output)
+            css = (output / "assets" / "styles.css").read_text(encoding="utf-8")
+            self.assertIn("--fire:#123456", css)
+            self.assertIn("--ice:#654321", css)
+            self.assertIn("--accent:#AA8844", css)
+            self.assertIn("--heading-font:Inter", css)
+
     def test_export_creates_standalone_application(self):
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp) / "project"
