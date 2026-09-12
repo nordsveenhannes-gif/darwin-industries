@@ -9,8 +9,10 @@ DB_PATH = Path(os.getenv("DARWIN_DB_PATH", "data/darwin.db"))
 
 def connect() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=30000")
     return conn
 
 
@@ -169,6 +171,53 @@ def init_db(conn: sqlite3.Connection) -> None:
             FOREIGN KEY(journey_id) REFERENCES customer_journeys(id)
         );
 
+        CREATE TABLE IF NOT EXISTS market_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            asset_class TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            source TEXT NOT NULL,
+            price REAL,
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS trade_signals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            agent TEXT NOT NULL,
+            asset_class TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            action TEXT NOT NULL,
+            confidence INTEGER NOT NULL,
+            thesis TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'PAPER_ONLY',
+            risk_decision TEXT,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS paper_trades (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            signal_id INTEGER,
+            asset_class TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            side TEXT NOT NULL,
+            notional_usd REAL NOT NULL,
+            entry_price REAL NOT NULL,
+            exit_price REAL,
+            status TEXT NOT NULL,
+            pnl_usd REAL,
+            stop_text TEXT NOT NULL,
+            target_text TEXT NOT NULL,
+            opened_at TEXT NOT NULL,
+            closed_at TEXT,
+            FOREIGN KEY(signal_id) REFERENCES trade_signals(id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_trade_signals_created
+            ON trade_signals(created_at, asset_class);
+
+        CREATE INDEX IF NOT EXISTS idx_paper_trades_status
+            ON paper_trades(status, asset_class);
+
         CREATE INDEX IF NOT EXISTS idx_journey_events
             ON journey_events(journey_id, id);
 
@@ -211,6 +260,9 @@ def init_db(conn: sqlite3.Connection) -> None:
         ("Oracle", "Research"),
         ("Ledger", "CFO / Risk"),
         ("Sentinel", "Operations / QA"),
+        ("Raptor", "Trading Desk / Meme Momentum"),
+        ("Apex", "Trading Desk / Intraday Equities"),
+        ("Circuit", "Trading Desk / Risk Control"),
     ]
     for agent, title in roster:
         conn.execute(
