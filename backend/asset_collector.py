@@ -11,6 +11,7 @@ class _ImageParser(HTMLParser):
     def __init__(self):
         super().__init__()
         self.urls: list[str] = []
+        self.social_images: list[str] = []
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
@@ -27,7 +28,7 @@ class _ImageParser(HTMLParser):
         if tag.lower() == "meta":
             key = (attrs.get("property") or attrs.get("name") or "").lower()
             if key in {"og:image", "twitter:image"} and attrs.get("content"):
-                self.urls.append(attrs["content"])
+                self.social_images.append(attrs["content"])
 
 
 def _extension(content_type: str, url: str) -> str:
@@ -69,7 +70,7 @@ def collect_source_images(
     parser.feed(html)
 
     urls: list[str] = []
-    for raw in parser.urls:
+    for raw in parser.social_images + parser.urls:
         absolute = urljoin(source_url, raw)
         parsed = urlparse(absolute)
         if parsed.scheme not in {"http", "https"}:
@@ -96,6 +97,12 @@ def collect_source_images(
                     continue
                 data = response.read(4_000_001)
                 if not data or len(data) > 4_000_000:
+                    continue
+                # Avoid tiny icons/tracking pixels becoming hero/product artwork.
+                if len(data) < 15_000:
+                    continue
+                lower_url = url.lower()
+                if any(token in lower_url for token in ("favicon", "icon-", "sprite", "tracking", "pixel")):
                     continue
                 ext = _extension(content_type, url)
                 filename = f"customer-{len(saved)+1:02d}{ext}"
