@@ -38,7 +38,8 @@ async function refresh(){
     const ev=d.website_events.map(e=>'<tr><td>'+esc(e.agent)+'</td><td>'+esc(e.stage)+'</td><td>'+esc(e.detail)+'</td></tr>').join('');
     const wl=d.website_leads.map(x=>'<tr><td>'+esc(x.name)+'</td><td>'+esc(x.email)+'</td><td>'+esc(x.interest)+'</td><td>'+esc(x.status)+'</td></tr>').join('');
     const preview=wp.preview_url?'<a href="'+esc(wp.preview_url)+'" target="_blank" rel="noopener">Open staging preview ↗</a>':'Preview not started';
-    document.getElementById('website').innerHTML='<div class="metric"><span>'+esc(wp.business_name)+' • '+esc(wp.mode)+'</span><b>'+esc(wp.status)+'</b><div class="small">Quote '+esc(wp.currency)+' '+Number(wp.quoted_price||0).toFixed(0)+' • revisions '+esc(wp.revision_rounds_used||0)+'/2 • approval '+esc(wp.customer_approval_status||'PENDING')+' • '+preview+' • leads '+esc(d.website_lead_count||0)+'</div></div><h2 style="margin-top:18px">Project events</h2><table><thead><tr><th>Agent</th><th>Stage</th><th>Detail</th></tr></thead><tbody>'+ev+'</tbody></table><h2 style="margin-top:18px">Staging enquiries</h2><table><thead><tr><th>Name</th><th>Email</th><th>Interest</th><th>Status</th></tr></thead><tbody>'+wl+'</tbody></table>';
+    const cq=d.website_client_questions.map(q=>'<tr><td>'+esc(q.required_for)+'</td><td>'+esc(q.question)+'</td><td>'+esc(q.status)+'</td><td>'+esc(q.answer||'-')+'</td></tr>').join('');
+    document.getElementById('website').innerHTML='<div class="metric"><span>'+esc(wp.business_name)+' • '+esc(wp.mode)+'</span><b>'+esc(wp.status)+'</b><div class="small">Quote '+esc(wp.currency)+' '+Number(wp.quoted_price||0).toFixed(0)+' • revisions '+esc(wp.revision_rounds_used||0)+'/2 • approval '+esc(wp.customer_approval_status||'PENDING')+' • brief '+esc(d.website_client_answered||0)+'/'+esc(d.website_client_total||0)+' • '+preview+' • leads '+esc(d.website_lead_count||0)+'</div></div><h2 style="margin-top:18px">Client brief / clarifications</h2><table><thead><tr><th>Gate</th><th>Question</th><th>Status</th><th>Answer</th></tr></thead><tbody>'+cq+'</tbody></table><h2 style="margin-top:18px">Project events</h2><table><thead><tr><th>Agent</th><th>Stage</th><th>Detail</th></tr></thead><tbody>'+ev+'</tbody></table><h2 style="margin-top:18px">Staging enquiries</h2><table><thead><tr><th>Name</th><th>Email</th><th>Interest</th><th>Status</th></tr></thead><tbody>'+wl+'</tbody></table>';
   }else{
     document.getElementById('website').innerHTML='<div class="small">No website project yet.</div>';
   }
@@ -69,11 +70,17 @@ def state_payload():
     website_events=[]
     website_leads=[]
     website_lead_count=0
+    website_client_questions=[]
+    website_client_total=0
+    website_client_answered=0
     if website_project:
         website_events=[dict(r) for r in conn.execute("SELECT agent,stage,detail,created_at FROM website_project_events WHERE project_id=? ORDER BY id DESC LIMIT 12",(website_project['id'],)).fetchall()]
         website_leads=[dict(r) for r in conn.execute("SELECT name,email,interest,status,created_at FROM website_leads WHERE project_id=? ORDER BY id DESC LIMIT 10",(website_project['id'],)).fetchall()]
         website_lead_count=int(conn.execute("SELECT COUNT(*) n FROM website_leads WHERE project_id=?",(website_project['id'],)).fetchone()['n'])
-    payload={'metrics':{'workday_status':session['status'] if session else 'IDLE','total_prospects':int(pipeline['total'] or 0),'draft_ready':int(pipeline['draft_ready'] or 0),'contact_ready':int(pipeline['contact_ready'] or 0),'outreach_sent':int(pipeline['outreach_sent'] or 0),'paper_pnl':float(summary['realized_pnl'] or 0),'open_paper_trades':int(summary['open_count'] or 0),'email_enabled':email_sending_enabled(),'daily_cap':daily_send_cap()},'agents':agents,'prospects':prospects,'trades':trades,'trade_signals':signals,'trader_stats':all_trader_stats(conn),'website_project':website_project,'website_events':website_events,'website_leads':website_leads,'website_lead_count':website_lead_count}
+        website_client_questions=[dict(r) for r in conn.execute("SELECT question,required_for,answer,status,answered_at FROM website_client_questions WHERE project_id=? ORDER BY id",(website_project['id'],)).fetchall()]
+        website_client_total=len(website_client_questions)
+        website_client_answered=sum(1 for q in website_client_questions if q['status']=='ANSWERED')
+    payload={'metrics':{'workday_status':session['status'] if session else 'IDLE','total_prospects':int(pipeline['total'] or 0),'draft_ready':int(pipeline['draft_ready'] or 0),'contact_ready':int(pipeline['contact_ready'] or 0),'outreach_sent':int(pipeline['outreach_sent'] or 0),'paper_pnl':float(summary['realized_pnl'] or 0),'open_paper_trades':int(summary['open_count'] or 0),'email_enabled':email_sending_enabled(),'daily_cap':daily_send_cap()},'agents':agents,'prospects':prospects,'trades':trades,'trade_signals':signals,'trader_stats':all_trader_stats(conn),'website_project':website_project,'website_events':website_events,'website_leads':website_leads,'website_lead_count':website_lead_count,'website_client_questions':website_client_questions,'website_client_total':website_client_total,'website_client_answered':website_client_answered}
     conn.close(); return payload
 
 
