@@ -18,6 +18,7 @@ from backend.agents.website_studio import (
 )
 from backend.site_builder import render_site, slugify, validate_site
 from backend.site_export import export_deployment_package
+from backend.reference_specs import fire_ice_reference_spec
 from backend.site_server import serve_site
 from backend.storage import connect, init_db, now_iso
 
@@ -330,9 +331,10 @@ def main() -> None:
             "BUILD_SPEC_STARTED",
             "Forge is researching the first-party website and preparing a factual premium build specification.",
         )
-        spec = Runner.run_sync(
-            build_website_forge(),
-            f"""
+        try:
+            spec = Runner.run_sync(
+                build_website_forge(),
+                f"""
 Create a premium website rebuild specification.
 
 Customer: {args.business_name}
@@ -346,9 +348,26 @@ Do not invent testimonials, results, certifications, health claims, phone number
 Choose exactly two primary customer-facing product/service collections. The visual renderer will
 create Home, one page for each collection, About, FAQ and Get Pricing.
 """,
-        ).final_output
-        if not isinstance(spec, WebsiteBuildSpec):
-            raise RuntimeError("Forge returned an unexpected website build specification.")
+            ).final_output
+            if not isinstance(spec, WebsiteBuildSpec):
+                raise RuntimeError("Forge returned an unexpected website build specification.")
+        except Exception as forge_exc:
+            if args.demo and "fireandicewellbeing.com" in args.website.lower():
+                spec = fire_ice_reference_spec()
+                _event(
+                    conn,
+                    project_id,
+                    "Forge",
+                    "REFERENCE_FALLBACK_USED",
+                    (
+                        "Live Forge research was temporarily unavailable, so Darwin used its "
+                        "conservative Fire & Ice reference specification built from first-party "
+                        f"public facts. Original error: {str(forge_exc)[:500]}"
+                    ),
+                )
+                print("Forge live research fallback: using verified Fire & Ice reference specification.")
+            else:
+                raise
 
         _event(
             conn,
