@@ -33,11 +33,12 @@ DEFAULT_CATEGORIES = [
 ]
 
 
-def _csv_env(name: str, fallback: list[str]) -> list[str]:
+def _list_env(name: str, fallback: list[str]) -> list[str]:
     value = os.getenv(name, "").strip()
     if not value:
         return fallback
-    items = [item.strip() for item in value.split(",") if item.strip()]
+    separator = ";" if ";" in value else ","
+    items = [item.strip() for item in value.split(separator) if item.strip()]
     return items or fallback
 
 
@@ -47,7 +48,7 @@ def main() -> None:
     )
     parser.add_argument("--hours", type=float, default=6.0)
     parser.add_argument("--cycle-minutes", type=int, default=60)
-    parser.add_argument("--max-model-calls", type=int, default=25)
+    parser.add_argument("--max-model-calls", type=int, default=36)
     parser.add_argument("--prospects-per-cycle", type=int, default=4)
     args = parser.parse_args()
 
@@ -60,8 +61,8 @@ def main() -> None:
     if not os.getenv("OPENAI_API_KEY"):
         raise SystemExit("OPENAI_API_KEY is missing from .env")
 
-    markets = _csv_env("DARWIN_MARKETS", DEFAULT_MARKETS)
-    categories = _csv_env("DARWIN_CATEGORIES", DEFAULT_CATEGORIES)
+    markets = _list_env("DARWIN_MARKETS", DEFAULT_MARKETS)
+    categories = _list_env("DARWIN_CATEGORIES", DEFAULT_CATEGORIES)
 
     conn = connect()
     init_db(conn)
@@ -72,6 +73,7 @@ def main() -> None:
     cycles = 0
     calls_used = 0
     index = 0
+    budget_idle_announced = False
 
     print("\n=== DARWIN WORKDAY STARTED ===")
     print(f"Target duration: {hours:g} hour(s)")
@@ -83,19 +85,21 @@ def main() -> None:
 
     try:
         while datetime.now() < deadline:
-            if calls_used + 5 > max_calls:
+            if calls_used + 6 > max_calls:
                 remaining = max(0, int((deadline - datetime.now()).total_seconds() / 60))
-                print(
-                    f"API guardrail reached ({calls_used}/{max_calls}). "
-                    f"Darwin will remain idle for the remaining ~{remaining} minute(s)."
-                )
-                if run_id is not None:
-                    save_event(
-                        conn,
-                        run_id,
-                        "WORKDAY_BUDGET_IDLE",
-                        f"Model-call guardrail reached at {calls_used}/{max_calls}.",
+                if not budget_idle_announced:
+                    print(
+                        f"API guardrail reached ({calls_used}/{max_calls}). "
+                        f"Darwin will remain idle for the remaining ~{remaining} minute(s)."
                     )
+                    if run_id is not None:
+                        save_event(
+                            conn,
+                            run_id,
+                            "WORKDAY_BUDGET_IDLE",
+                            f"Model-call guardrail reached at {calls_used}/{max_calls}.",
+                        )
+                    budget_idle_announced = True
                 sleep_seconds = min(300, max(1, int((deadline - datetime.now()).total_seconds())))
                 time.sleep(sleep_seconds)
                 continue
