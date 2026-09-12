@@ -234,6 +234,11 @@ def init_db(conn: sqlite3.Connection) -> None:
             build_dir TEXT,
             preview_url TEXT,
             error_text TEXT,
+            revision_rounds_used INTEGER NOT NULL DEFAULT 0,
+            customer_approval_status TEXT NOT NULL DEFAULT 'PENDING',
+            launch_approved INTEGER NOT NULL DEFAULT 0,
+            asset_rights_confirmed INTEGER NOT NULL DEFAULT 0,
+            payment_verified INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
@@ -313,6 +318,12 @@ def init_db(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "paper_trades", "gross_pnl_usd", "REAL")
     _ensure_column(conn, "paper_trades", "fees_usd", "REAL")
     _ensure_column(conn, "paper_trades", "slippage_bps", "REAL")
+
+    _ensure_column(conn, "website_projects", "revision_rounds_used", "INTEGER NOT NULL DEFAULT 0")
+    _ensure_column(conn, "website_projects", "customer_approval_status", "TEXT NOT NULL DEFAULT 'PENDING'")
+    _ensure_column(conn, "website_projects", "launch_approved", "INTEGER NOT NULL DEFAULT 0")
+    _ensure_column(conn, "website_projects", "asset_rights_confirmed", "INTEGER NOT NULL DEFAULT 0")
+    _ensure_column(conn, "website_projects", "payment_verified", "INTEGER NOT NULL DEFAULT 0")
 
     roster = [
         ("Atlas", "CEO / Capital Allocation"),
