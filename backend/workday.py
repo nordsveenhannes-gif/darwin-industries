@@ -5,6 +5,12 @@ from datetime import datetime, timedelta
 
 from dotenv import load_dotenv
 
+from backend.company_shift import (
+    end_shift,
+    run_support_shift,
+    set_core_agent_action,
+    start_shift,
+)
 from backend.emailer import daily_send_cap, email_sending_enabled, send_ready_outreach
 from backend.pipeline import (
     audit_best_prospect,
@@ -50,13 +56,13 @@ def main() -> None:
     )
     parser.add_argument("--hours", type=float, default=6.0)
     parser.add_argument("--cycle-minutes", type=int, default=60)
-    parser.add_argument("--max-model-calls", type=int, default=42)
+    parser.add_argument("--max-model-calls", type=int, default=50)
     parser.add_argument("--prospects-per-cycle", type=int, default=4)
     args = parser.parse_args()
 
     hours = max(0.25, min(args.hours, 12.0))
     cycle_minutes = max(10, min(args.cycle_minutes, 180))
-    max_calls = max(5, min(args.max_model_calls, 100))
+    max_calls = max(8, min(args.max_model_calls, 120))
     prospects_per_cycle = max(1, min(args.prospects_per_cycle, 8))
 
     load_dotenv()
@@ -70,6 +76,7 @@ def main() -> None:
     init_db(conn)
     run_id = latest_run_id(conn)
     session_id = start_work_session(conn, hours, max_calls)
+    start_shift(conn)
 
     deadline = datetime.now() + timedelta(hours=hours)
     cycles = 0
@@ -78,10 +85,13 @@ def main() -> None:
     budget_idle_announced = False
     sending = email_sending_enabled()
 
-    print("\n=== DARWIN WORKDAY STARTED ===")
+    print("\n=== DARWIN FULL-COMPANY WORKDAY STARTED ===")
     print(f"Target duration: {hours:g} hour(s)")
     print(f"Cycle interval: {cycle_minutes} minute(s)")
     print(f"Model-call guardrail: {max_calls}")
+    print("Roster on shift: Atlas, Mercury, Forge, Freya, Nova, Satoshi, Midas, Oracle, Ledger, Sentinel")
+    print("Core revenue crew: Oracle + Mercury + Forge + Sentinel every cycle")
+    print("Department rotation: one of Atlas/Ledger/Nova/Freya/Midas/Satoshi each cycle")
     print(
         "Controlled email sending: "
         + (f"ENABLED (daily cap {daily_send_cap()})" if sending else "DISABLED")
@@ -92,8 +102,8 @@ def main() -> None:
     try:
         while datetime.now() < deadline:
             # Worst-case model units per cycle:
-            # research 1 + scoring 1 + audit/QA 2 + draft/QA 2 + contact verify 1 = 7.
-            if calls_used + 7 > max_calls:
+            # core revenue loop up to 7 + one rotating department shift = 8.
+            if calls_used + 8 > max_calls:
                 remaining = max(0, int((deadline - datetime.now()).total_seconds() / 60))
                 if not budget_idle_announced:
                     print(
@@ -123,6 +133,9 @@ def main() -> None:
             print(f"\n--- Cycle {cycles}: {category} in {market} ---")
 
             try:
+                set_core_agent_action(
+                    conn, "Oracle", f"Researching {category} prospects in {market}"
+                )
                 saved, duplicates, used = research_batch(
                     conn,
                     market=market,
@@ -131,41 +144,115 @@ def main() -> None:
                     run_id=run_id,
                 )
                 calls_used += used
+                set_core_agent_action(
+                    conn,
+                    "Oracle",
+                    f"Researched {category} in {market}: {saved} new, {duplicates} duplicate(s)",
+                    status="READY",
+                )
                 print(f"Oracle: {saved} saved, {duplicates} duplicate(s).")
 
+                set_core_agent_action(conn, "Mercury", "Scoring researched prospects")
                 scored, used = score_researched_prospects(
                     conn,
                     run_id=run_id,
                     limit=max(5, prospects_per_cycle),
                 )
                 calls_used += used
+                set_core_agent_action(
+                    conn,
+                    "Mercury",
+                    f"Scored {scored} prospect(s)",
+                    status="READY",
+                )
                 print(f"Mercury: {scored} prospect(s) scored.")
 
+                set_core_agent_action(conn, "Forge", "Producing evidence-based website audit")
+                set_core_agent_action(conn, "Sentinel", "QA reviewing Forge audit")
                 prospect_id, used = audit_best_prospect(conn, run_id=run_id)
                 calls_used += used
+                set_core_agent_action(
+                    conn,
+                    "Forge",
+                    (
+                        f"Audit processed for prospect #{prospect_id}"
+                        if prospect_id is not None
+                        else "No scored prospect needed an audit"
+                    ),
+                    status="READY",
+                )
+                set_core_agent_action(
+                    conn,
+                    "Sentinel",
+                    "Audit QA completed",
+                    status="READY",
+                )
                 if prospect_id is not None:
                     print(f"Forge/Sentinel: prospect #{prospect_id} audit processed.")
 
+                set_core_agent_action(conn, "Mercury", "Drafting personalized outreach")
+                set_core_agent_action(conn, "Sentinel", "QA reviewing outreach")
                 prospect_id, used = draft_outreach_for_best(conn, run_id=run_id)
                 calls_used += used
+                set_core_agent_action(
+                    conn,
+                    "Mercury",
+                    (
+                        f"Outreach processed for prospect #{prospect_id}"
+                        if prospect_id is not None
+                        else "No audited prospect needed outreach"
+                    ),
+                    status="READY",
+                )
+                set_core_agent_action(
+                    conn,
+                    "Sentinel",
+                    "Outreach QA completed",
+                    status="READY",
+                )
                 if prospect_id is not None:
                     print(
                         f"Mercury/Sentinel: prospect #{prospect_id} "
                         "outreach draft processed."
                     )
 
+                set_core_agent_action(conn, "Oracle", "Verifying public generic business contact")
                 prospect_id, used = find_public_contact_for_best(conn, run_id=run_id)
                 calls_used += used
+                set_core_agent_action(
+                    conn,
+                    "Oracle",
+                    (
+                        f"Contact check processed for prospect #{prospect_id}"
+                        if prospect_id is not None
+                        else "No draft-ready prospect needed contact verification"
+                    ),
+                    status="READY",
+                )
                 if prospect_id is not None:
                     print(
                         f"Oracle: prospect #{prospect_id} public role contact checked."
                     )
 
                 if sending:
+                    set_core_agent_action(conn, "Mercury", "Executing guarded outbound sales")
+                    set_core_agent_action(conn, "Sentinel", "Enforcing outbound send guardrails")
                     sent, skipped = send_ready_outreach(
                         conn,
                         run_id=run_id,
                         limit=1,
+                    )
+                    set_core_agent_action(
+                        conn,
+                        "Mercury",
+                        f"Controlled outbound: {sent} sent, {skipped} skipped",
+                        status="READY",
+                    )
+                    set_core_agent_action(
+                        conn,
+                        "Sentinel",
+                        "Outbound guardrail check completed",
+                        status="READY",
                     )
                     if sent or skipped:
                         print(
@@ -173,12 +260,21 @@ def main() -> None:
                             f"{skipped} skipped by guardrails."
                         )
 
+                department_agent, used = run_support_shift(
+                    conn,
+                    session_id=session_id,
+                    run_id=run_id,
+                    cycle=cycles,
+                )
+                calls_used += used
+                print(f"{department_agent}: department shift completed.")
+
                 update_work_session(
                     conn,
                     session_id,
                     cycles_completed=cycles,
                     estimated_calls_used=calls_used,
-                    note=f"Last cycle: {category} in {market}",
+                    note=f"Last cycle: {category} in {market}; department={department_agent}",
                 )
 
             except Exception as exc:
@@ -218,10 +314,11 @@ def main() -> None:
             cycles_completed=cycles,
             estimated_calls_used=calls_used,
             status="COMPLETE",
-            note="Bounded workday completed.",
+            note="Full-company bounded workday completed.",
             ended=True,
         )
-        print("\n=== DARWIN WORKDAY COMPLETE ===")
+        end_shift(conn)
+        print("\n=== DARWIN FULL-COMPANY WORKDAY COMPLETE ===")
         print(f"Cycles: {cycles}")
         print(f"Estimated model-call units used: {calls_used}/{max_calls}")
 
@@ -235,8 +332,10 @@ def main() -> None:
             note="Stopped by owner.",
             ended=True,
         )
-        print("\nDarwin workday stopped safely.")
+        end_shift(conn)
+        print("\nDarwin full-company workday stopped safely.")
 
+    print("Review company with: python -m backend.status")
     print("Review pipeline with: python -m backend.prospects")
 
 
