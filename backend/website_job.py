@@ -243,6 +243,20 @@ def main() -> None:
     project_id = int(cur.lastrowid)
     conn.commit()
 
+    if args.confirm_asset_rights and not args.demo:
+        conn.execute(
+            "UPDATE website_projects SET asset_rights_confirmed=1, updated_at=? WHERE id=?",
+            (now_iso(), project_id),
+        )
+        conn.commit()
+        _event(
+            conn,
+            project_id,
+            "Customer",
+            "ASSET_RIGHTS_CONFIRMED",
+            "Customer asset-reuse rights were explicitly confirmed for this project.",
+        )
+
     _event(
         conn,
         project_id,
@@ -282,15 +296,30 @@ def main() -> None:
         )
         print("Demo customer: quotation accepted. Revenue recorded: $0 (simulation).")
     else:
-        _update(conn, project_id, status="QUOTE_ACCEPTED_UNPAID")
+        _update(conn, project_id, status="AWAITING_DEPOSIT")
         _event(
             conn,
             project_id,
             "Customer",
             "QUOTE_ACCEPTED",
-            "Customer quote acceptance recorded. Payment remains unverified.",
+            "Customer quote acceptance recorded. Deposit remains unverified.",
         )
-        print("Quote acceptance recorded. Payment remains unverified and is not counted as revenue.")
+        _event(
+            conn,
+            project_id,
+            "Ledger",
+            "PAYMENT_GATE",
+            "Production work is blocked until the agreed deposit is verified. Quote acceptance alone is not revenue.",
+        )
+        project_root.mkdir(parents=True, exist_ok=True)
+        (project_root / "quote.md").write_text(quote, encoding="utf-8")
+        _update(conn, project_id, build_dir=str(project_root))
+        _set_agent(conn, "Ledger", "READY", "Website project waiting for verified deposit")
+        print("Quote acceptance recorded. Deposit remains unverified.")
+        print("Darwin will not begin production work before verified payment.")
+        print(f"Quote saved at: {project_root / 'quote.md'}")
+        conn.close()
+        return
 
     try:
         _set_agent(conn, "Forge", "WORKING", f"Architecting premium website for {args.business_name}")
