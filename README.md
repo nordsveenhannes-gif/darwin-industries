@@ -269,3 +269,24 @@ python -m backend.dashboard
 \`\`\`
 
 Then open \`http://127.0.0.1:8765\`.
+
+
+### Website revisions and customer approval
+
+The quoted package includes two bounded revision rounds. Apply customer feedback with:
+
+\`\`\`bat
+python -m backend.website_revision --project-id 1 --feedback "Make the sauna page more concise and move delivery details higher." --serve
+\`\`\`
+
+Darwin preserves the current staging build when QA fails and refuses a silent third included revision; anything beyond the quoted two rounds should become an explicit change order.
+
+When the customer approves the current staging build:
+
+\`\`\`bat
+python -m backend.website_approval --project-id 1 --approve-staging
+\`\`\`
+
+Approval records the customer decision but does **not** publish the website. For a real commercial job, launch remains gated by verified payment, confirmed asset rights, explicit staging approval, and a customer-controlled production hosting/domain target.
+
+In demo mode Darwin may reuse image assets already published on the source website to make the staging preview realistic. That demo reuse is not treated as production rights confirmation. For a real customer, use \`--confirm-asset-rights\` only after the customer has confirmed they control or license the assets.
