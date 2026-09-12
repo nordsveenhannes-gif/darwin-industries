@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 
 from backend.emailer import daily_send_cap, email_sending_enabled
 from backend.storage import connect, init_db
+from backend.trading_stats import all_trader_stats
 
 
 HOST = "127.0.0.1"
@@ -172,15 +173,429 @@ async function refresh(){
     return '<tr><td>'+esc(t.asset_class)+'</td><td>'+esc(t.symbol)+'</td><td>'+esc(t.status)
       +'</td><td>'+esc(Number(t.notional_usd||0).toFixed(2))+'</td><td>'+esc(Number(t.entry_price||0).toFixed(6))
       +'</td><td>'+esc(t.exit_price===null?"-":Number(t.exit_price).toFixed(6))
+      +'</td><td>'+esc(Number(t.fees_usd||0).toFixed(2))
       +'</td><td>'+esc(Number(t.pnl_usd||0).toFixed(2))+'</td></tr>';
   }).join("");
   var signalRows=d.trade_signals.map(function(x){
     return '<tr><td>'+esc(x.agent)+'</td><td>'+esc(x.asset_class)+'</td><td>'+esc(x.symbol)
       +'</td><td>'+esc(x.action)+'</td><td>'+esc(x.confidence)+'</td><td>'+esc(x.created_at.replace("T"," ").slice(0,19))+'</td></tr>';
   }).join("");
+  var statCards=d.trader_stats.map(function(x){
+    var pf = x.profit_factor===null ? "∞" : Number(x.profit_factor).toFixed(2);
+    return '<div class="metric"><span>'+esc(x.agent)+' '+esc(x.asset_class)+'</span>'
+      +'<b>
+}
+refresh();
+setInterval(refresh,2000);
+</script>
+</body>
+</html>"""
+
+
+def _row(row):
+    return dict(row) if row is not None else None
+
+
+def state_payload():
+    conn = connect()
+    init_db(conn)
+
+    agents = [
+        dict(r)
+        for r in conn.execute(
+            """
+            SELECT agent, title, status, last_action, confidence, stress,
+                   motivation, job_security, updated_at
+            FROM agent_state
+            ORDER BY CASE agent
+                WHEN 'Atlas' THEN 1 WHEN 'Mercury' THEN 2 WHEN 'Forge' THEN 3
+                WHEN 'Freya' THEN 4 WHEN 'Nova' THEN 5 WHEN 'Satoshi' THEN 6
+                WHEN 'Midas' THEN 7 WHEN 'Oracle' THEN 8 WHEN 'Ledger' THEN 9
+                WHEN 'Sentinel' THEN 10 WHEN 'Raptor' THEN 11 WHEN 'Apex' THEN 12
+                WHEN 'Circuit' THEN 13 ELSE 99 END
+            """
+        ).fetchall()
+    ]
+
+    pipeline = conn.execute(
+        """
+        SELECT
+            COUNT(*) AS total,
+            SUM(CASE WHEN status='DRAFT_READY' THEN 1 ELSE 0 END) AS draft_ready,
+            SUM(CASE WHEN status='CONTACT_READY' THEN 1 ELSE 0 END) AS contact_ready,
+            SUM(CASE WHEN status='OUTREACH_SENT' THEN 1 ELSE 0 END) AS outreach_sent
+        FROM prospects
+        """
+    ).fetchone()
+
+    session = conn.execute(
+        "SELECT * FROM work_sessions ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+
+    journey = conn.execute(
+        "SELECT * FROM customer_journeys ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+
+    journey_events = []
+    if journey:
+        journey_events = [
+            dict(r)
+            for r in conn.execute(
+                """
+                SELECT agent, stage, detail, created_at
+                FROM journey_events
+                WHERE journey_id=?
+                ORDER BY id DESC
+                LIMIT 40
+                """,
+                (journey["id"],),
+            ).fetchall()
+        ]
+
+    company_events = [
+        dict(r)
+        for r in conn.execute(
+            """
+            SELECT event_type, detail, created_at
+            FROM events
+            ORDER BY id DESC
+            LIMIT 40
+            """
+        ).fetchall()
+    ]
+
+    prospects = [
+        dict(r)
+        for r in conn.execute(
+            """
+            SELECT business_name, city, category, sales_score, status, contact_email
+            FROM prospects
+            ORDER BY id DESC
+            LIMIT 20
+            """
+        ).fetchall()
+    ]
+
+    trading_summary = conn.execute(
+        """
+        SELECT
+            SUM(CASE WHEN status='OPEN' THEN 1 ELSE 0 END) AS open_count,
+            COALESCE(SUM(CASE WHEN status!='OPEN' THEN pnl_usd ELSE 0 END), 0) AS realized_pnl
+        FROM paper_trades
+        """
+    ).fetchone()
+
+    trades = [
+        dict(r)
+        for r in conn.execute(
+            """
+            SELECT asset_class, symbol, status, notional_usd, entry_price,
+                   exit_price, fees_usd, pnl_usd, opened_at, closed_at
+            FROM paper_trades
+            ORDER BY id DESC
+            LIMIT 12
+            """
+        ).fetchall()
+    ]
+
+    trade_signals = [
+        dict(r)
+        for r in conn.execute(
+            """
+            SELECT agent, asset_class, symbol, action, confidence, created_at
+            FROM trade_signals
+            ORDER BY id DESC
+            LIMIT 12
+            """
+        ).fetchall()
+    ]
+
+    payload = {
+        "metrics": {
+            "workday_status": session["status"] if session else "IDLE",
+            "total_prospects": int(pipeline["total"] or 0),
+            "draft_ready": int(pipeline["draft_ready"] or 0),
+            "contact_ready": int(pipeline["contact_ready"] or 0),
+            "outreach_sent": int(pipeline["outreach_sent"] or 0),
+            "paper_pnl": float(trading_summary["realized_pnl"] or 0),
+            "open_paper_trades": int(trading_summary["open_count"] or 0),
+            "email_enabled": email_sending_enabled(),
+            "daily_cap": daily_send_cap(),
+        },
+        "agents": agents,
+        "journey": _row(journey),
+        "journey_events": journey_events,
+        "company_events": company_events,
+        "prospects": prospects,
+        "trades": trades,
+        "trade_signals": trade_signals,
+        "trader_stats": all_trader_stats(conn),
+    }
+    conn.close()
+    return payload
+
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/" or self.path.startswith("/index"):
+            body = PAGE.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if self.path.startswith("/api/state"):
+            body = json.dumps(state_payload(), ensure_ascii=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        self.send_response(404)
+        self.end_headers()
+
+    def log_message(self, format, *args):
+        return
+
+
+def main() -> None:
+    load_dotenv()
+    conn = connect()
+    init_db(conn)
+    conn.close()
+
+    print("\n=== DARWIN MISSION CONTROL ===")
+    print(f"Live monitor: http://{HOST}:{PORT}")
+    print("Auto-refresh: every 2 seconds")
+    print("No model calls are used by the dashboard.")
+    print("Press Ctrl+C to stop the monitor.\n")
+
+    server = ThreadingHTTPServer((HOST, PORT), Handler)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nMission Control stopped.")
+    finally:
+        server.server_close()
+
+
+if __name__ == "__main__":
+    main()
++esc(Number(x.net_pnl||0).toFixed(2))+'</b>'
+      +'<div class="small">closed '+esc(x.closed_trades)+' • win '+esc(Number(x.win_rate||0).toFixed(1))+'% • PF '+esc(pf)
+      +' • fees 
+}
+refresh();
+setInterval(refresh,2000);
+</script>
+</body>
+</html>"""
+
+
+def _row(row):
+    return dict(row) if row is not None else None
+
+
+def state_payload():
+    conn = connect()
+    init_db(conn)
+
+    agents = [
+        dict(r)
+        for r in conn.execute(
+            """
+            SELECT agent, title, status, last_action, confidence, stress,
+                   motivation, job_security, updated_at
+            FROM agent_state
+            ORDER BY CASE agent
+                WHEN 'Atlas' THEN 1 WHEN 'Mercury' THEN 2 WHEN 'Forge' THEN 3
+                WHEN 'Freya' THEN 4 WHEN 'Nova' THEN 5 WHEN 'Satoshi' THEN 6
+                WHEN 'Midas' THEN 7 WHEN 'Oracle' THEN 8 WHEN 'Ledger' THEN 9
+                WHEN 'Sentinel' THEN 10 WHEN 'Raptor' THEN 11 WHEN 'Apex' THEN 12
+                WHEN 'Circuit' THEN 13 ELSE 99 END
+            """
+        ).fetchall()
+    ]
+
+    pipeline = conn.execute(
+        """
+        SELECT
+            COUNT(*) AS total,
+            SUM(CASE WHEN status='DRAFT_READY' THEN 1 ELSE 0 END) AS draft_ready,
+            SUM(CASE WHEN status='CONTACT_READY' THEN 1 ELSE 0 END) AS contact_ready,
+            SUM(CASE WHEN status='OUTREACH_SENT' THEN 1 ELSE 0 END) AS outreach_sent
+        FROM prospects
+        """
+    ).fetchone()
+
+    session = conn.execute(
+        "SELECT * FROM work_sessions ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+
+    journey = conn.execute(
+        "SELECT * FROM customer_journeys ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+
+    journey_events = []
+    if journey:
+        journey_events = [
+            dict(r)
+            for r in conn.execute(
+                """
+                SELECT agent, stage, detail, created_at
+                FROM journey_events
+                WHERE journey_id=?
+                ORDER BY id DESC
+                LIMIT 40
+                """,
+                (journey["id"],),
+            ).fetchall()
+        ]
+
+    company_events = [
+        dict(r)
+        for r in conn.execute(
+            """
+            SELECT event_type, detail, created_at
+            FROM events
+            ORDER BY id DESC
+            LIMIT 40
+            """
+        ).fetchall()
+    ]
+
+    prospects = [
+        dict(r)
+        for r in conn.execute(
+            """
+            SELECT business_name, city, category, sales_score, status, contact_email
+            FROM prospects
+            ORDER BY id DESC
+            LIMIT 20
+            """
+        ).fetchall()
+    ]
+
+    trading_summary = conn.execute(
+        """
+        SELECT
+            SUM(CASE WHEN status='OPEN' THEN 1 ELSE 0 END) AS open_count,
+            COALESCE(SUM(CASE WHEN status!='OPEN' THEN pnl_usd ELSE 0 END), 0) AS realized_pnl
+        FROM paper_trades
+        """
+    ).fetchone()
+
+    trades = [
+        dict(r)
+        for r in conn.execute(
+            """
+            SELECT asset_class, symbol, status, notional_usd, entry_price,
+                   exit_price, pnl_usd, opened_at, closed_at
+            FROM paper_trades
+            ORDER BY id DESC
+            LIMIT 12
+            """
+        ).fetchall()
+    ]
+
+    trade_signals = [
+        dict(r)
+        for r in conn.execute(
+            """
+            SELECT agent, asset_class, symbol, action, confidence, created_at
+            FROM trade_signals
+            ORDER BY id DESC
+            LIMIT 12
+            """
+        ).fetchall()
+    ]
+
+    payload = {
+        "metrics": {
+            "workday_status": session["status"] if session else "IDLE",
+            "total_prospects": int(pipeline["total"] or 0),
+            "draft_ready": int(pipeline["draft_ready"] or 0),
+            "contact_ready": int(pipeline["contact_ready"] or 0),
+            "outreach_sent": int(pipeline["outreach_sent"] or 0),
+            "paper_pnl": float(trading_summary["realized_pnl"] or 0),
+            "open_paper_trades": int(trading_summary["open_count"] or 0),
+            "email_enabled": email_sending_enabled(),
+            "daily_cap": daily_send_cap(),
+        },
+        "agents": agents,
+        "journey": _row(journey),
+        "journey_events": journey_events,
+        "company_events": company_events,
+        "prospects": prospects,
+        "trades": trades,
+        "trade_signals": trade_signals,
+    }
+    conn.close()
+    return payload
+
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/" or self.path.startswith("/index"):
+            body = PAGE.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if self.path.startswith("/api/state"):
+            body = json.dumps(state_payload(), ensure_ascii=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        self.send_response(404)
+        self.end_headers()
+
+    def log_message(self, format, *args):
+        return
+
+
+def main() -> None:
+    load_dotenv()
+    conn = connect()
+    init_db(conn)
+    conn.close()
+
+    print("\n=== DARWIN MISSION CONTROL ===")
+    print(f"Live monitor: http://{HOST}:{PORT}")
+    print("Auto-refresh: every 2 seconds")
+    print("No model calls are used by the dashboard.")
+    print("Press Ctrl+C to stop the monitor.\n")
+
+    server = ThreadingHTTPServer((HOST, PORT), Handler)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nMission Control stopped.")
+    finally:
+        server.server_close()
+
+
+if __name__ == "__main__":
+    main()
++esc(Number(x.fees||0).toFixed(2))+'</div></div>';
+  }).join("");
   document.getElementById("trading").innerHTML=
-    '<div class="small">Live market monitoring can create PAPER trades only. Real-money execution is disabled.</div>'
-    +'<div class="artifact"><h3>Paper trades</h3><table><thead><tr><th>Class</th><th>Symbol</th><th>Status</th><th>Notional</th><th>Entry</th><th>Exit</th><th>P&L USD</th></tr></thead><tbody>'+tradeRows+'</tbody></table></div>'
+    '<div class="small">Simulation uses live market observations, fake fills, estimated slippage and fees. Real-money execution is disabled.</div>'
+    +'<div class="metrics" style="margin-top:10px">'+statCards+'</div>'
+    +'<div class="artifact"><h3>Paper trades</h3><table><thead><tr><th>Class</th><th>Symbol</th><th>Status</th><th>Notional</th><th>Entry</th><th>Exit</th><th>Fees</th><th>Net P&L</th></tr></thead><tbody>'+tradeRows+'</tbody></table></div>'
     +'<div class="artifact"><h3>Latest signals</h3><table><thead><tr><th>Agent</th><th>Class</th><th>Symbol</th><th>Action</th><th>Confidence</th><th>Time</th></tr></thead><tbody>'+signalRows+'</tbody></table></div>';
 }
 refresh();
