@@ -66,7 +66,7 @@ class WebsiteBuilderTests(unittest.TestCase):
             render_site(self.sample_spec(), output)
 
             self.assertEqual(validate_site(output), [])
-            for page in ["index.html", "infrared-saunas.html", "ice-baths.html", "about.html", "faq.html", "contact.html"]:
+            for page in ["index.html", "infrared-saunas.html", "ice-baths.html", "about.html", "faq.html", "contact.html", "privacy.html"]:
                 self.assertTrue((output / page).exists())
 
             contact = (output / "contact.html").read_text(encoding="utf-8")
@@ -74,6 +74,8 @@ class WebsiteBuilderTests(unittest.TestCase):
             robots = (output / "robots.txt").read_text(encoding="utf-8")
 
             self.assertIn('id="quote-form"', contact)
+            self.assertIn('name="company_website"', contact)
+            self.assertIn("privacy.html", contact)
             self.assertIn("/api/quote", app_js)
             self.assertIn("Disallow: /", robots)
 
@@ -93,7 +95,7 @@ class WebsiteBuilderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "site"
             render_site(self.sample_spec(), output)
-            for page in ["index.html", "infrared-saunas.html", "ice-baths.html", "about.html", "faq.html", "contact.html"]:
+            for page in ["index.html", "infrared-saunas.html", "ice-baths.html", "about.html", "faq.html", "contact.html", "privacy.html"]:
                 text = (output / page).read_text(encoding="utf-8")
                 self.assertIn('name="robots" content="noindex,nofollow"', text)
 
