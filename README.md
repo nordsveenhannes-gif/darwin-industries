@@ -14,12 +14,13 @@ The runtime can now:
 - verify only explicitly published generic business/role email addresses,
 - send controlled outreach through Resend when the owner enables it,
 - enforce a small daily send cap, one-contact-only behavior, and local suppression,
-- put the full 10-agent roster on shift for a bounded multi-hour workday,
+- put the 10-agent operating company on shift for a bounded multi-hour workday,
+- expose a separate 3-agent experimental trading desk (Raptor, Apex, Circuit) in PAPER mode,
 - run Oracle, Mercury, Forge, and Sentinel as the core revenue crew every cycle,
 - rotate Atlas, Ledger, Nova, Freya, Midas, and Satoshi through one department shift each cycle,
 - persist pipeline, email, task, and work-session state in SQLite.
 
-Cash spending remains disabled.
+Cash spending remains disabled. The trading desk is simulation-only and does not place real-money orders.
 
 ## Run a workday
 
@@ -100,6 +101,40 @@ python -m backend.demo_customer --business-name "Uptrend" --website "https://upt
 ```
 
 The demo deliberately stops at the payment boundary because Stripe checkout/webhook is not wired into Darwin yet. The dashboard labels that gap instead of fabricating a sale.
+
+## Experimental Trading Desk — PAPER mode
+
+Darwin now has a separate experimental trading department:
+
+- **Raptor** scans Moonshot public market data for meme-token momentum setups. It prefers repeated support that has actually been observed in Darwin's stored price history plus strengthening momentum. Default action is WAIT.
+- **Apex** reviews owner-configured liquid equities using Alpaca paper market data. It requires a defined entry, stop, target, and same-day exit.
+- **Circuit** is an independent risk gate. It can block a setup even when Raptor or Apex wants it.
+
+The desk currently supports **paper trading only**. There is no Moonshot account signing, wallet private key handling, or live stock order endpoint in Darwin. This is deliberate while the strategy is being measured.
+
+Run a bounded paper session:
+
+```bat
+python -m backend.trading_desk --hours 6 --interval-minutes 5
+```
+
+Raptor can read the public Moonshot data API without account credentials. Apex stays in `WAITING_CONFIG` until an Alpaca **paper** API key/secret and an owner-selected stock watchlist are added to the private `.env`.
+
+Example private configuration:
+
+```text
+DARWIN_TRADING_MODE=paper
+DARWIN_MEME_PAPER_NOTIONAL_USD=10
+DARWIN_MEME_PAPER_DAILY_STOP_USD=5
+
+ALPACA_PAPER_API_KEY=...
+ALPACA_PAPER_API_SECRET=...
+DARWIN_STOCK_WATCHLIST=YOUR,TICKERS,HERE
+DARWIN_STOCK_PAPER_NOTIONAL_USD=100
+DARWIN_STOCK_PAPER_DAILY_STOP_USD=20
+```
+
+Mission Control shows open paper positions, realized paper P&L, latest Raptor/Apex signals, and all three trading agents. Paper P&L is tracked separately from operating revenue.
 
 ## Controlled outbound email
 
