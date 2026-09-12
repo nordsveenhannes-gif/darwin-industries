@@ -14,7 +14,7 @@ The runtime can now:
 - verify only explicitly published generic business/role email addresses,
 - send controlled outreach through Resend when the owner enables it,
 - enforce a small daily send cap, one-contact-only behavior, and local suppression,
-- run the loop for a bounded multi-hour workday,
+- put the full 10-agent roster on shift for a bounded multi-hour workday,\n- run Oracle, Mercury, Forge, and Sentinel as the core revenue crew every cycle,\n- rotate Atlas, Ledger, Nova, Freya, Midas, and Satoshi through one department shift each cycle,
 - persist pipeline, email, task, and work-session state in SQLite.
 
 Cash spending remains disabled.
@@ -31,8 +31,8 @@ Defaults:
 
 - 6-hour bounded session
 - one cycle per hour
-- 42-model-call local guardrail
-- 4 researched prospects per cycle
+- 50-model-call local guardrail
+- 4 researched prospects per cycle\n- all 10 agents placed on shift\n- core revenue crew works every cycle\n- one support department completes a focused company task each cycle
 - minimum sales score 70 before contact verification
 - controlled email daily cap 3 when sending is enabled
 - no automatic follow-up sequence
@@ -47,6 +47,18 @@ python -m backend.status
 python -m backend.prospects
 python -m backend.emailer
 ```
+
+## Full-company workday
+
+A normal six-cycle workday uses the roster this way:
+
+- **Oracle** researches prospects and verifies safe public business contacts every cycle.
+- **Mercury** scores prospects, drafts outreach, and executes guarded sales every cycle.
+- **Forge** produces evidence-based audits every cycle.
+- **Sentinel** QA-checks audits, outreach, and outbound safety every cycle.
+- **Atlas, Ledger, Nova, Freya, Midas, and Satoshi** rotate through one focused department assignment per cycle so all six complete work during a normal 6-hour session.
+
+The rotation is deliberate: all agents are on shift, but Darwin does not burn six extra model calls every hour just to make them look busy. Department outputs are persisted and can be read with `python -m backend.board`. The status screen also tracks each agent's last action plus simulated confidence, stress, motivation, and job security.
 
 ## Controlled outbound email
 
