@@ -35,7 +35,7 @@ def main() -> None:
     conn.execute(
         """UPDATE website_projects
         SET status='STAGING_APPROVED', customer_approval_status='APPROVED',
-            launch_approved=1, updated_at=?
+            launch_approved=0, updated_at=?
         WHERE id=?""",
         (now_iso(), args.project_id),
     )
@@ -55,28 +55,30 @@ def main() -> None:
     project = conn.execute(
         "SELECT * FROM website_projects WHERE id=?", (args.project_id,)
     ).fetchone()
-    real_launch_ready = bool(
-        project["mode"] == "CUSTOMER"
-        and project["launch_approved"]
-        and project["payment_verified"]
-        and project["asset_rights_confirmed"]
-    )
+    launch_rows = conn.execute(
+        """SELECT status FROM website_client_questions
+        WHERE project_id=? AND required_for='LAUNCH'""",
+        (args.project_id,),
+    ).fetchall()
+    unanswered_launch = sum(1 for row in launch_rows if row["status"] != "ANSWERED")
 
     print(f"\nWebsite project #{args.project_id}: STAGING APPROVED")
     print("Public deployment was NOT performed.")
+    print("Staging approval is intentionally separate from launch approval.")
     if project["mode"] == "DEMO":
         print("Demo project: approval is simulated and no payment/revenue is implied.")
-    elif real_launch_ready:
-        print("Commercial gates recorded: staging approved, payment verified, asset rights confirmed.")
-        print("Production deployment still requires a configured customer-owned hosting/domain target.")
     else:
         missing = []
         if not project["payment_verified"]:
             missing.append("verified payment")
         if not project["asset_rights_confirmed"]:
-            missing.append("confirmed asset rights")
+            missing.append("confirmed production asset rights")
+        if unanswered_launch:
+            missing.append(f"{unanswered_launch} unanswered launch questionnaire item(s)")
         if missing:
             print("Launch remains blocked by: " + ", ".join(missing) + ".")
+        else:
+            print("Commercial prerequisites appear complete; explicit launch approval is still required separately.")
 
     conn.close()
 
