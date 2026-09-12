@@ -59,6 +59,33 @@ def trader_stats(conn, agent: str, asset_class: str) -> dict:
     wins = int(trades["wins"] or 0)
     gross_profit = float(trades["gross_profit"] or 0)
     gross_loss = float(trades["gross_loss"] or 0)
+    profit_factor = _profit_factor(gross_profit, gross_loss)
+
+    pnl_rows = conn.execute(
+        """
+        SELECT COALESCE(pt.pnl_usd, 0) AS pnl
+        FROM paper_trades pt
+        JOIN trade_signals ts ON ts.id=pt.signal_id
+        WHERE ts.agent=? AND pt.asset_class=? AND pt.status!='OPEN'
+        ORDER BY COALESCE(pt.closed_at, pt.opened_at), pt.id
+        """,
+        (agent, asset_class),
+    ).fetchall()
+    equity = 0.0
+    peak = 0.0
+    max_drawdown = 0.0
+    for row in pnl_rows:
+        equity += float(row["pnl"] or 0)
+        peak = max(peak, equity)
+        max_drawdown = max(max_drawdown, peak - equity)
+
+    sample_ready = closed >= 20
+    promising = (
+        sample_ready
+        and float(trades["net_pnl"] or 0) > 0
+        and profit_factor is not None
+        and profit_factor >= 1.20
+    )
 
     return {
         "agent": agent,
@@ -78,7 +105,12 @@ def trader_stats(conn, agent: str, asset_class: str) -> dict:
         "avg_trade": float(trades["avg_trade"] or 0),
         "best_trade": float(trades["best_trade"] or 0),
         "worst_trade": float(trades["worst_trade"] or 0),
-        "profit_factor": _profit_factor(gross_profit, gross_loss),
+        "profit_factor": profit_factor,
+        "max_drawdown": max_drawdown,
+        "sample_ready": sample_ready,
+        "paper_verdict": (
+            "PROMISING" if promising else "UNPROVEN" if sample_ready else "INSUFFICIENT_SAMPLE"
+        ),
     }
 
 
@@ -111,6 +143,10 @@ def main() -> None:
             f"  net P&L=$" + f"{stats['net_pnl']:+.2f}" + " | gross=$"
             + f"{stats['gross_pnl']:+.2f}" + " | fees=$"
             + f"{stats['fees']:.2f}" + f" | profit factor={pf_text}"
+        )
+        print(
+            f"  max drawdown=$" + f"{stats['max_drawdown']:.2f}"
+            + f" | verdict={stats['paper_verdict']}"
         )
         print(
             f"  avg=$" + f"{stats['avg_trade']:+.2f}" + " | best=$"
