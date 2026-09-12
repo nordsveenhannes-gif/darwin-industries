@@ -79,6 +79,18 @@ def init_db(conn: sqlite3.Connection) -> None:
             status TEXT NOT NULL DEFAULT 'RESEARCHED',
             UNIQUE(website_url)
         );
+
+        CREATE TABLE IF NOT EXISTS work_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            started_at TEXT NOT NULL,
+            ended_at TEXT,
+            status TEXT NOT NULL,
+            target_hours REAL NOT NULL,
+            cycles_completed INTEGER NOT NULL DEFAULT 0,
+            model_call_budget INTEGER NOT NULL,
+            estimated_calls_used INTEGER NOT NULL DEFAULT 0,
+            note TEXT
+        );
         """
     )
 
@@ -87,6 +99,16 @@ def init_db(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "tasks", "qa_report", "TEXT")
     _ensure_column(conn, "tasks", "last_error", "TEXT")
     _ensure_column(conn, "tasks", "updated_at", "TEXT")
+
+    _ensure_column(conn, "prospects", "sales_score", "INTEGER")
+    _ensure_column(conn, "prospects", "sales_reason", "TEXT")
+    _ensure_column(conn, "prospects", "recommended_angle", "TEXT")
+    _ensure_column(conn, "prospects", "audit_text", "TEXT")
+    _ensure_column(conn, "prospects", "audit_qa", "TEXT")
+    _ensure_column(conn, "prospects", "outreach_subject", "TEXT")
+    _ensure_column(conn, "prospects", "outreach_body", "TEXT")
+    _ensure_column(conn, "prospects", "outreach_qa", "TEXT")
+    _ensure_column(conn, "prospects", "updated_at", "TEXT")
     conn.commit()
 
 
@@ -299,9 +321,9 @@ def save_prospect(
             INSERT INTO prospects(
                 run_id, created_at, market, category, business_name,
                 website_url, city, observed_issue, why_fit,
-                source_urls_json, confidence, status
+                source_urls_json, confidence, status, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'RESEARCHED')
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'RESEARCHED', ?)
             """,
             (
                 run_id,
@@ -315,6 +337,7 @@ def save_prospect(
                 why_fit,
                 source_urls_json,
                 confidence,
+                now_iso(),
             ),
         )
         conn.commit()
@@ -328,3 +351,52 @@ def latest_run_id(conn: sqlite3.Connection) -> int | None:
         "SELECT id FROM runs ORDER BY id DESC LIMIT 1"
     ).fetchone()
     return int(row["id"]) if row else None
+
+
+def start_work_session(
+    conn: sqlite3.Connection,
+    target_hours: float,
+    model_call_budget: int,
+) -> int:
+    cur = conn.execute(
+        """
+        INSERT INTO work_sessions(
+            started_at, status, target_hours, model_call_budget
+        ) VALUES (?, 'RUNNING', ?, ?)
+        """,
+        (now_iso(), target_hours, model_call_budget),
+    )
+    conn.commit()
+    return int(cur.lastrowid)
+
+
+def update_work_session(
+    conn: sqlite3.Connection,
+    session_id: int,
+    cycles_completed: int,
+    estimated_calls_used: int,
+    status: str = "RUNNING",
+    note: str | None = None,
+    ended: bool = False,
+) -> None:
+    conn.execute(
+        """
+        UPDATE work_sessions
+        SET cycles_completed=?,
+            estimated_calls_used=?,
+            status=?,
+            note=?,
+            ended_at=CASE WHEN ? THEN ? ELSE ended_at END
+        WHERE id=?
+        """,
+        (
+            cycles_completed,
+            estimated_calls_used,
+            status,
+            note,
+            1 if ended else 0,
+            now_iso(),
+            session_id,
+        ),
+    )
+    conn.commit()
