@@ -161,7 +161,14 @@ def answers_for_project(project_id: int) -> dict[str, str]:
     return {row["question_key"]: row["answer"] or "" for row in rows}
 
 
-def _page(project_id: int, business_name: str, questions: list[dict], heading: str) -> bytes:
+def _page(
+    project_id: int,
+    business_name: str,
+    questions: list[dict],
+    heading: str,
+    existing_answers: dict[str, str] | None = None,
+) -> bytes:
+    existing_answers = existing_answers or {}
     fields = []
     for q in questions:
         key = html.escape(q["key"], quote=True)
@@ -170,15 +177,19 @@ def _page(project_id: int, business_name: str, questions: list[dict], heading: s
         placeholder = html.escape(q.get("placeholder", ""), quote=True)
         options = q.get("options") or []
         if options:
+            selected_value = existing_answers.get(q["key"], "")
             option_html = '<option value="">Choose one</option>' + "".join(
-                f'<option value="{html.escape(str(opt), quote=True)}">{html.escape(str(opt))}</option>'
+                f'<option value="{html.escape(str(opt), quote=True)}"'
+                + (' selected' if str(opt) == selected_value else '')
+                + f'>{html.escape(str(opt))}</option>'
                 for opt in options
             )
             control = f'<select id="{key}" name="{key}" required>{option_html}</select>'
         else:
+            existing = html.escape(existing_answers.get(q["key"], ""))
             control = (
                 f'<textarea id="{key}" name="{key}" rows="4" required '
-                f'placeholder="{placeholder}"></textarea>'
+                f'placeholder="{placeholder}">{existing}</textarea>'
             )
         fields.append(
             f"""
@@ -234,6 +245,13 @@ def collect_client_answers(
 ) -> dict[str, str]:
     questions = questions or INITIAL_QUESTIONS
     _seed_questions(project_id, questions)
+    existing_answers = answers_for_project(project_id)
+    question_keys = {q["key"] for q in questions}
+    already_answered = {
+        key: value for key, value in existing_answers.items() if key in question_keys and value.strip()
+    }
+    if len(already_answered) == len(question_keys):
+        return already_answered
     done = threading.Event()
 
     class Handler(BaseHTTPRequestHandler):
@@ -242,7 +260,13 @@ def collect_client_answers(
                 self.send_response(404)
                 self.end_headers()
                 return
-            payload = _page(project_id, business_name, questions, heading)
+            payload = _page(
+                project_id,
+                business_name,
+                questions,
+                heading,
+                existing_answers=answers_for_project(project_id),
+            )
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
@@ -305,7 +329,8 @@ def collect_client_answers(
 body{{font-family:system-ui;background:#f4f0e8;color:#171512;display:grid;place-items:center;min-height:90vh}}
 div{{max-width:620px;background:white;padding:42px;border-radius:24px}}h1{{font-family:Georgia,serif;font-size:42px}}
 </style></head><body><div><h1>Thanks — Darwin has the brief.</h1>
-<p>The agents are continuing the build now. You can close this tab and watch Mission Control.</p></div></body></html>""".encode("utf-8")
+<p>The agents are checking your answers now. You can close this tab and watch Mission Control.</p>
+<p style="color:#6a655d;font-size:13px">If Darwin finds one specific decision it cannot safely infer, it may ask a shorter follow-up. It will not ask you to refill this brief.</p></div></body></html>""".encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(payload)))
