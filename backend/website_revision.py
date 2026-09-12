@@ -15,6 +15,7 @@ from backend.agents.website_studio import (
     build_website_nova,
 )
 from backend.site_builder import render_site, validate_site
+from backend.site_export import export_deployment_package
 from backend.site_server import serve_site
 from backend.storage import connect, init_db, now_iso
 
@@ -199,6 +200,7 @@ invented claims/testimonials/results, and does not weaken customer ownership or 
             ux.model_dump_json(indent=2), encoding="utf-8"
         )
         (project_root / "qa-report.txt").write_text(qa, encoding="utf-8")
+        deploy_dir = export_deployment_package(project_root, site_dir)
 
         next_used = used + 1
         conn.execute(
@@ -228,6 +230,7 @@ invented claims/testimonials/results, and does not weaken customer ownership or 
 
         print(f"\nRevision round {next_used}/2 complete.")
         print(f"Staging build updated: {site_dir}")
+        print(f"Deploy package refreshed: {deploy_dir}")
         print("Customer approval reset to PENDING.")
 
         conn.close()
