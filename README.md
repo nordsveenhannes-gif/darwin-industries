@@ -231,3 +231,7 @@ The outbound sales path is implemented. The next production milestones are:
 3. Install dependencies with `python -m pip install -r requirements.txt`.
 4. Configure the Resend variables above if you want real controlled outreach.
 5. Run `python -m backend.workday --hours 6`.
+
+### Moonshot / Solana market data note
+
+Moonshot's legacy public Data API at `api.moonshot.cc` is no longer treated as a runtime dependency. Raptor uses public Solana market data for discovery by default. Moonshot is a self-custodial Solana wallet and its swaps route on-chain through Jupiter; future live execution should use a secure local signer plus a supported on-chain/Jupiter path rather than scraping or automating the Moonshot app UI. The exact proprietary Moonshot in-app trending/listing feed is not assumed to be publicly reproducible.
