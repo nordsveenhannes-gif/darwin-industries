@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 from backend.agents.website_studio import CollectionSpec, WebsiteBuildSpec
 
 
-BASE_REQUIRED_PAGES = ["index.html", "about.html", "faq.html", "contact.html", "privacy.html"]
+BASE_REQUIRED_PAGES = ["index.html", "about.html", "faq.html", "contact.html", "privacy.html", "404.html"]
 
 
 def slugify(value: str) -> str:
@@ -389,6 +389,20 @@ def _privacy(spec: WebsiteBuildSpec) -> str:
 """
 
 
+def _not_found(spec: WebsiteBuildSpec) -> str:
+    return f"""
+<section class="page-hero">
+  <p class="eyebrow">404</p>
+  <h1>That page isn’t here.</h1>
+  <p class="lede">The link may be old or the page may have moved. Use the navigation or return to the {_e(spec.brand_name)} homepage.</p>
+  <div class="button-row">
+    <a class="button button-primary" href="index.html">Back to home</a>
+    <a class="button button-ghost" href="contact.html">Contact us</a>
+  </div>
+</section>
+"""
+
+
 STYLES = r"""
 :root{
   --ink:#171512;--paper:#f4f0e8;--cream:#ebe4d8;--line:rgba(23,21,18,.14);
@@ -512,6 +526,11 @@ def render_site(spec: WebsiteBuildSpec, output_dir: Path, image_files: list[str]
             "Privacy",
             "Staging privacy and data-handling information.",
             _privacy(spec),
+        ),
+        "404.html": (
+            "Page not found",
+            "The requested page could not be found.",
+            _not_found(spec),
         ),
     }
 
