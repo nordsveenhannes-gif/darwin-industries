@@ -22,26 +22,54 @@ def main() -> None:
         print(f"Run: #{run['id']}")
         print(f"Status: {run['status']}")
         print(f"Created: {run['created_at']}")
-        print("\nTASK QUEUE")
-
-        tasks = conn.execute(
-            "SELECT * FROM tasks WHERE run_id=? ORDER BY id",
-            (run["id"],),
-        ).fetchall()
-
-        if not tasks:
-            print("  No tasks queued.")
-        else:
-            for task in tasks:
-                external = "EXTERNAL" if task["external_action"] else "INTERNAL"
-                print(
-                    f"  #{task['id']} [{task['status']}] "
-                    f"{task['owner']}: {task['title']} "
-                    f"| {external} | cash cap USD {task['cash_budget_usd']:.2f} "
-                    f"| attempts {task['attempts']}/{task['max_attempts']}"
-                )
     else:
         print("No Darwin runs found yet.")
+
+    agents = conn.execute(
+        """
+        SELECT agent, title, status, last_action, confidence, stress,
+               motivation, job_security
+        FROM agent_state
+        ORDER BY CASE agent
+            WHEN 'Atlas' THEN 1
+            WHEN 'Mercury' THEN 2
+            WHEN 'Forge' THEN 3
+            WHEN 'Freya' THEN 4
+            WHEN 'Nova' THEN 5
+            WHEN 'Satoshi' THEN 6
+            WHEN 'Midas' THEN 7
+            WHEN 'Oracle' THEN 8
+            WHEN 'Ledger' THEN 9
+            WHEN 'Sentinel' THEN 10
+            ELSE 99 END
+        """
+    ).fetchall()
+
+    print("\nAGENT FLOOR")
+    for agent in agents:
+        print(
+            f"  {agent['agent']:<9} [{agent['status']}] {agent['title']} "
+            f"| confidence {agent['confidence']} | stress {agent['stress']} "
+            f"| motivation {agent['motivation']} | job security {agent['job_security']}"
+        )
+        if agent["last_action"]:
+            print(f"      {agent['last_action']}")
+
+    shifts = conn.execute(
+        """
+        SELECT agent, COUNT(*) AS n, MAX(cycle) AS latest_cycle
+        FROM department_reports
+        GROUP BY agent
+        ORDER BY MAX(id) DESC
+        """
+    ).fetchall()
+    if shifts:
+        print("\nDEPARTMENT WORK COMPLETED")
+        for row in shifts:
+            print(
+                f"  {row['agent']}: {row['n']} report(s), "
+                f"latest cycle {row['latest_cycle']}"
+            )
 
     pipeline = conn.execute(
         """
