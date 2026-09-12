@@ -416,25 +416,35 @@ do not silently choose a version. Omit the disputed fact from staging or place i
         )
         _set_agent(conn, "Forge", "READY", "Website architecture and factual copy drafted")
 
-        _set_agent(conn, "Nova", "WORKING", "Reviewing customer UX and conversion flow")
-        ux = Runner.run_sync(
-            build_website_nova(),
-            f"""
-Review this client website specification before build.
+        def run_ux_review(current_spec: WebsiteBuildSpec) -> UXReview:
+            result = Runner.run_sync(
+                build_website_nova(),
+                f"""
+Review this PRIVATE STAGING website specification before build.
 
 Customer: {args.business_name}
-Quoted scope: Home, Saunas, Ice Baths, About, FAQ, Get Pricing.
-Primary conversion: a transparent quote request, not an online purchase.
+Quoted scope: Home, two primary product/service pages, About, FAQ and Get Pricing.
+Primary conversion: the action stated in the client brief.
+
+CLIENT BRIEF:
+{json.dumps(client_brief, ensure_ascii=False, indent=2)}
 
 SPEC:
-{spec.model_dump_json(indent=2)}
+{current_spec.model_dump_json(indent=2)}
 
-Return a strict professional review. The goal is a premium agency-quality staging site that
-does not look generic, deceptive or over-automated.
+Review the staging experience as a professional web agency would.
+Do not fail the private staging build merely because final launch-only matters such as exact privacy
+wording, production cookie settings, analytics, domain access, final CRM routing, final warranty text
+or payment verification are still pending. Put those in conversion_notes.
+approved=false only when a material staging UX/content issue still needs correction.
 """,
-        ).final_output
-        if not isinstance(ux, UXReview):
-            raise RuntimeError("Nova returned an unexpected UX review.")
+            ).final_output
+            if not isinstance(result, UXReview):
+                raise RuntimeError("Nova returned an unexpected UX review.")
+            return result
+
+        _set_agent(conn, "Nova", "WORKING", "Reviewing customer UX and conversion flow")
+        ux = run_ux_review(spec)
 
         _event(
             conn,
@@ -442,7 +452,7 @@ does not look generic, deceptive or over-automated.
             "Nova",
             "UX_REVIEW",
             f"UX score {ux.score}/100. Approved: {ux.approved}. "
-            + ("; ".join(ux.required_changes[:5]) if ux.required_changes else "No critical changes."),
+            + ("; ".join(ux.required_changes[:5]) if ux.required_changes else "No critical staging changes."),
         )
 
         if not ux.approved and ux.required_changes:
@@ -450,19 +460,24 @@ does not look generic, deceptive or over-automated.
             spec = Runner.run_sync(
                 build_website_forge(),
                 f"""
-Revise this website build specification using Nova's review. Re-check public facts using the
+Revise this website build specification using Nova's STAGING review. Re-check public facts using the
 first-party website where needed. Return a complete replacement WebsiteBuildSpec.
 
 Customer: {args.business_name}
 Website: {args.website}
 
+CLIENT BRIEF:
+{json.dumps(client_brief, ensure_ascii=False, indent=2)}
+
 CURRENT SPEC:
 {spec.model_dump_json(indent=2)}
 
-NOVA REQUIRED CHANGES:
+NOVA REQUIRED STAGING CHANGES:
 {json.dumps(ux.required_changes, ensure_ascii=False, indent=2)}
 
 Do not fix criticism by inventing claims or customer facts.
+Launch-only dependencies can remain in customer_assets_needed/unverified_claims and must not be
+turned into fabricated staging copy.
 """,
             ).final_output
             if not isinstance(spec, WebsiteBuildSpec):
@@ -472,10 +487,22 @@ Do not fix criticism by inventing claims or customer facts.
                 project_id,
                 "Forge",
                 "UX_REVISIONS_APPLIED",
-                "Forge applied Nova's required changes to the build specification.",
+                "Forge applied Nova's required staging changes to the build specification.",
             )
 
-        _set_agent(conn, "Nova", "READY", f"Website UX reviewed: {ux.score}/100")
+            # Critical: review the revised specification, not the rejected earlier draft.
+            _set_agent(conn, "Nova", "WORKING", "Re-reviewing revised customer staging experience")
+            ux = run_ux_review(spec)
+            _event(
+                conn,
+                project_id,
+                "Nova",
+                "UX_REVIEW_SECOND_PASS",
+                f"Revised UX score {ux.score}/100. Approved: {ux.approved}. "
+                + ("; ".join(ux.required_changes[:5]) if ux.required_changes else "No critical staging changes."),
+            )
+
+        _set_agent(conn, "Nova", "READY", f"Website staging UX reviewed: {ux.score}/100")
 
         _set_agent(conn, "Sentinel", "WORKING", "QA checking website scope, claims and customer trust")
 
