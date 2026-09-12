@@ -14,7 +14,9 @@ The runtime can now:
 - verify only explicitly published generic business/role email addresses,
 - send controlled outreach through Resend when the owner enables it,
 - enforce a small daily send cap, one-contact-only behavior, and local suppression,
-- put the full 10-agent roster on shift for a bounded multi-hour workday,\n- run Oracle, Mercury, Forge, and Sentinel as the core revenue crew every cycle,\n- rotate Atlas, Ledger, Nova, Freya, Midas, and Satoshi through one department shift each cycle,
+- put the full 10-agent roster on shift for a bounded multi-hour workday,
+- run Oracle, Mercury, Forge, and Sentinel as the core revenue crew every cycle,
+- rotate Atlas, Ledger, Nova, Freya, Midas, and Satoshi through one department shift each cycle,
 - persist pipeline, email, task, and work-session state in SQLite.
 
 Cash spending remains disabled.
@@ -32,7 +34,10 @@ Defaults:
 - 6-hour bounded session
 - one cycle per hour
 - 50-model-call local guardrail
-- 4 researched prospects per cycle\n- all 10 agents placed on shift\n- core revenue crew works every cycle\n- one support department completes a focused company task each cycle
+- 4 researched prospects per cycle
+- all 10 agents placed on shift
+- core revenue crew works every cycle
+- one support department completes a focused company task each cycle
 - minimum sales score 70 before contact verification
 - controlled email daily cap 3 when sending is enabled
 - no automatic follow-up sequence
