@@ -4,6 +4,7 @@ import argparse
 import json
 import re
 import threading
+import time
 import webbrowser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -17,9 +18,21 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 class StagingHandler(SimpleHTTPRequestHandler):
     site_dir: Path = Path(".")
     project_id: int | None = None
+    _submit_log: dict[str, list[float]] = {}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(self.site_dir), **kwargs)
+
+    def end_headers(self):
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; form-action 'self'; base-uri 'self'; frame-ancestors 'none'",
+        )
+        super().end_headers()
 
     def _json(self, status: int, payload: dict) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -73,8 +86,22 @@ class StagingHandler(SimpleHTTPRequestHandler):
             self._json(400, {"error": "Please add a little more detail about the project."})
             return
         if not consent:
-            self._json(400, {"error": "Consent is required to submit this enquiry."})
+            self._json(400, {"error": "Acknowledgement is required to submit this enquiry."})
             return
+
+        client_ip = self.client_address[0] if self.client_address else "unknown"
+        now = time.time()
+        recent = [
+            stamp
+            for stamp in self._submit_log.get(client_ip, [])
+            if stamp >= now - 3600
+        ]
+        if len(recent) >= 8:
+            self._submit_log[client_ip] = recent
+            self._json(429, {"error": "Too many enquiries from this connection. Please try again later."})
+            return
+        recent.append(now)
+        self._submit_log[client_ip] = recent
 
         conn = connect()
         init_db(conn)
