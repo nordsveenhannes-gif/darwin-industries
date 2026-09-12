@@ -665,7 +665,10 @@ def _moonshot_cycle(conn, model_budget: list[int], max_model_calls: int) -> None
                 symbol=str(best.get("symbol") or "NONE"),
                 action="WAIT",
                 confidence=85,
-                thesis="No scanned Solana meme candidate passed the deterministic setup gate.",
+                thesis=(
+                    "No scanned Solana meme candidate passed the deterministic setup gate. "
+                    + str(gate.get("reason") or "")
+                ),
                 support_evidence=gate.get("reason") or "No valid repeated support setup.",
                 momentum_evidence=(
                     f"15m momentum {gate.get('momentum_15m_pct')}%; "
