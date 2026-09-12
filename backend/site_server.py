@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import threading
+import webbrowser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -89,7 +91,7 @@ class StagingHandler(SimpleHTTPRequestHandler):
         return
 
 
-def serve_site(site_dir: Path, project_id: int | None, port: int = 8788) -> None:
+def serve_site(site_dir: Path, project_id: int | None, port: int = 8788, open_browser: bool = False) -> None:
     site_dir = site_dir.resolve()
     if not (site_dir / "index.html").exists():
         raise RuntimeError(f"No built site found at {site_dir}")
@@ -105,6 +107,8 @@ def serve_site(site_dir: Path, project_id: int | None, port: int = 8788) -> None
     print("Quote form: LIVE for local staging; submissions are stored in Darwin's database.")
     print("Public internet deployment: NOT enabled.")
     print("Press Ctrl+C to stop the preview.\n")
+    if open_browser:
+        threading.Timer(0.8, lambda: webbrowser.open(f"http://127.0.0.1:{port}")).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -118,8 +122,14 @@ def main() -> None:
     parser.add_argument("--site-dir", required=True)
     parser.add_argument("--project-id", type=int)
     parser.add_argument("--port", type=int, default=8788)
+    parser.add_argument("--open-browser", action="store_true")
     args = parser.parse_args()
-    serve_site(Path(args.site_dir), args.project_id, max(1024, min(args.port, 65535)))
+    serve_site(
+        Path(args.site_dir),
+        args.project_id,
+        max(1024, min(args.port, 65535)),
+        open_browser=args.open_browser,
+    )
 
 
 if __name__ == "__main__":
