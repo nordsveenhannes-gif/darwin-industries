@@ -359,7 +359,7 @@ def _contact(spec: WebsiteBuildSpec) -> str:
     </label>
     <label>Project notes<textarea name="message" rows="6" required maxlength="2000" placeholder="What you need, location and desired timeline"></textarea></label>
     <label class="honeypot" aria-hidden="true">Website<input name="company_website" tabindex="-1" autocomplete="off"></label>
-    <label class="consent"><input type="checkbox" name="consent" required> <span>I’m happy to be contacted about this quotation request and have read the <a href="privacy.html">staging privacy notice</a>.</span></label>
+    <label class="consent"><input type="checkbox" name="consent" required> <span>I understand these details will be used to respond to my enquiry and have read the <a href="privacy.html">staging privacy notice</a>.</span></label>
     <button class="button button-primary" type="submit">Send enquiry</button>
     <p id="form-status" class="form-status" role="status" aria-live="polite"></p>
   </form>
