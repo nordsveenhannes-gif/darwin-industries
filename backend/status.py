@@ -32,7 +32,7 @@ def main() -> None:
             print(
                 f"  #{task['id']} [{task['status']}] "
                 f"{task['owner']}: {task['title']} "
-                f"| {external} | cash cap ${task['cash_budget_usd']:.2f} "
+                f"| {external} | cash cap USD {task['cash_budget_usd']:.2f} "
                 f"| attempts {task['attempts']}/{task['max_attempts']}"
             )
 
