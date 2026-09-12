@@ -5,6 +5,7 @@ from pathlib import Path
 from backend.agents.website_studio import CollectionSpec, FAQItem, ProductCard, WebsiteBuildSpec
 from backend.site_builder import render_site, validate_site
 from backend.site_export import export_deployment_package
+from backend.website_release import _make_release
 
 
 class WebsiteBuilderTests(unittest.TestCase):
@@ -90,6 +91,25 @@ class WebsiteBuilderTests(unittest.TestCase):
             self.assertTrue((deploy / "Dockerfile").exists())
             self.assertTrue((deploy / "site" / "index.html").exists())
             self.assertIn("/api/quote", (deploy / "app.py").read_text(encoding="utf-8"))
+
+    def test_release_copy_becomes_indexable_and_has_sitemap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "project"
+            site = project / "site"
+            render_site(self.sample_spec(), site)
+            export_deployment_package(project, site)
+            release = _make_release(project, "https://example.com")
+
+            index = (release / "site" / "index.html").read_text(encoding="utf-8")
+            not_found = (release / "site" / "404.html").read_text(encoding="utf-8")
+            robots = (release / "site" / "robots.txt").read_text(encoding="utf-8")
+            sitemap = (release / "site" / "sitemap.xml").read_text(encoding="utf-8")
+
+            self.assertIn('name="robots" content="index,follow"', index)
+            self.assertIn('<link rel="canonical" href="https://example.com/">', index)
+            self.assertIn('name="robots" content="noindex,follow"', not_found)
+            self.assertIn("Allow: /", robots)
+            self.assertIn("https://example.com/", sitemap)
 
     def test_staging_pages_are_noindex(self):
         with tempfile.TemporaryDirectory() as tmp:
