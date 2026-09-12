@@ -8,6 +8,7 @@ STANDALONE_APP = r'''import json
 import os
 import re
 import sqlite3
+import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.request import Request, urlopen
@@ -72,8 +73,21 @@ def notify(payload):
 
 
 class Handler(SimpleHTTPRequestHandler):
+    _submit_log = {}
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(SITE), **kwargs)
+
+    def end_headers(self):
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; form-action 'self'; base-uri 'self'; frame-ancestors 'none'",
+        )
+        super().end_headers()
 
     def json_response(self, status, payload):
         body = json.dumps(payload).encode("utf-8")
@@ -131,8 +145,22 @@ class Handler(SimpleHTTPRequestHandler):
             self.json_response(400, {"error": "Please add more project detail."})
             return
         if not consent:
-            self.json_response(400, {"error": "Consent is required."})
+            self.json_response(400, {"error": "Acknowledgement is required."})
             return
+
+        client_ip = self.client_address[0] if self.client_address else "unknown"
+        now = time.time()
+        recent = [
+            stamp
+            for stamp in self._submit_log.get(client_ip, [])
+            if stamp >= now - 3600
+        ]
+        if len(recent) >= 8:
+            self._submit_log[client_ip] = recent
+            self.json_response(429, {"error": "Too many enquiries from this connection. Please try again later."})
+            return
+        recent.append(now)
+        self._submit_log[client_ip] = recent
 
         conn = db()
         conn.execute(
