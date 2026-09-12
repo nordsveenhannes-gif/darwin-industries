@@ -235,3 +235,37 @@ The outbound sales path is implemented. The next production milestones are:
 ### Moonshot / Solana market data note
 
 Moonshot's legacy public Data API at `api.moonshot.cc` is no longer treated as a runtime dependency. Raptor uses public Solana market data for discovery by default. Moonshot is a self-custodial Solana wallet and its swaps route on-chain through Jupiter; future live execution should use a secure local signer plus a supported on-chain/Jupiter path rather than scraping or automating the Moonshot app UI. The exact proprietary Moonshot in-app trending/listing feed is not assumed to be publicly reproducible.
+
+
+## Website Studio — accepted quotation to staging site
+
+Darwin now has a post-sale website fulfillment path. It is separate from the audit/outreach demo.
+
+For a safe fake-customer run:
+
+\`\`\`bat
+python -m backend.website_job --demo --business-name "Fire & Ice Wellbeing" --website "https://www.fireandicewellbeing.com/"
+\`\`\`
+
+Demo mode:
+- creates a fixed-scope quotation,
+- simulates quote acceptance without recording revenue or payment,
+- has Forge research the customer's first-party site and create a factual build specification,
+- has Nova review UX/conversion quality,
+- has Sentinel QA claims, scope, ownership and launch safety,
+- renders a responsive six-page staging site,
+- validates required pages, internal links, form wiring and staging \`noindex\`,
+- starts a local preview at \`http://127.0.0.1:8788\`,
+- provides a working quote-request form backed by Darwin's SQLite database.
+
+The generated project is written under \`builds/<business>-<project-id>/\` and is intentionally gitignored. Mission Control shows the latest website-project status, project events and local staging enquiries.
+
+The local staging server is not a public deployment. Darwin must not replace a customer's live site until the customer has approved staging, asset rights are confirmed, real payment requirements are satisfied, and owner-controlled production/domain access is provided securely. Never ask a customer to email passwords or seed phrases.
+
+To run Mission Control in a second terminal:
+
+\`\`\`bat
+python -m backend.dashboard
+\`\`\`
+
+Then open \`http://127.0.0.1:8765\`.
