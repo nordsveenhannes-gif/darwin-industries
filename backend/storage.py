@@ -266,6 +266,21 @@ def init_db(conn: sqlite3.Connection) -> None:
             FOREIGN KEY(project_id) REFERENCES website_projects(id)
         );
 
+        CREATE TABLE IF NOT EXISTS website_client_questions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL,
+            question_key TEXT NOT NULL,
+            question TEXT NOT NULL,
+            why_needed TEXT NOT NULL,
+            required_for TEXT NOT NULL DEFAULT 'STAGING',
+            answer TEXT,
+            status TEXT NOT NULL DEFAULT 'OPEN',
+            created_at TEXT NOT NULL,
+            answered_at TEXT,
+            UNIQUE(project_id, question_key),
+            FOREIGN KEY(project_id) REFERENCES website_projects(id)
+        );
+
         CREATE INDEX IF NOT EXISTS idx_website_projects_status
             ON website_projects(status, id);
 
@@ -274,6 +289,9 @@ def init_db(conn: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_website_leads_project
             ON website_leads(project_id, id);
+
+        CREATE INDEX IF NOT EXISTS idx_website_client_questions
+            ON website_client_questions(project_id, status, id);
 
         CREATE INDEX IF NOT EXISTS idx_trade_signals_created
             ON trade_signals(created_at, asset_class);
