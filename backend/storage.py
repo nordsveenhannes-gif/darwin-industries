@@ -139,6 +139,39 @@ def init_db(conn: sqlite3.Connection) -> None:
             FOREIGN KEY(session_id) REFERENCES work_sessions(id)
         );
 
+        CREATE TABLE IF NOT EXISTS customer_journeys (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            business_name TEXT NOT NULL,
+            website_url TEXT NOT NULL,
+            customer_email TEXT NOT NULL,
+            status TEXT NOT NULL,
+            observation TEXT,
+            discovery_evidence TEXT,
+            audit_text TEXT,
+            audit_qa TEXT,
+            outreach_subject TEXT,
+            outreach_body TEXT,
+            outreach_qa TEXT,
+            email_status TEXT,
+            provider_message_id TEXT,
+            error_text TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS journey_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            journey_id INTEGER NOT NULL,
+            agent TEXT NOT NULL,
+            stage TEXT NOT NULL,
+            detail TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(journey_id) REFERENCES customer_journeys(id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_journey_events
+            ON journey_events(journey_id, id);
+
         CREATE INDEX IF NOT EXISTS idx_outbound_email_status
             ON outbound_emails(status, sent_at);
 
