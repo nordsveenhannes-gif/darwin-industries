@@ -500,7 +500,12 @@ PASS only when:
         conn.close()
 
         if should_serve:
-            serve_site(site_dir, project_id, max(1024, min(args.port, 65535)))
+            serve_site(
+                site_dir,
+                project_id,
+                max(1024, min(args.port, 65535)),
+                open_browser=args.demo,
+            )
         else:
             print(
                 f"\nPreview later with:\n"
