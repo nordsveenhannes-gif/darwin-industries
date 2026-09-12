@@ -12,8 +12,10 @@ from backend.agents.sentinel import build_sentinel
 from backend.asset_collector import collect_source_images
 from backend.agents.website_studio import (
     ClarificationPlan,
+    ScopeDecision,
     UXReview,
     WebsiteBuildSpec,
+    build_scope_manager,
     build_website_clarifier,
     build_website_forge,
     build_website_nova,
@@ -371,6 +373,86 @@ def main() -> None:
         "LAUNCH_DEPENDENCIES_RECORDED",
         "Launch-only client requirements were recorded separately so they do not block private staging.",
     )
+
+    _set_agent(conn, "Mercury", "WORKING", "Checking client brief against accepted website scope")
+    scope_decision = Runner.run_sync(
+        build_scope_manager(),
+        f"""
+Check the accepted quote against this client brief before production starts.
+
+QUOTE:
+{quote}
+
+CLIENT BRIEF:
+{json.dumps(client_brief, ensure_ascii=False, indent=2)}
+""",
+    ).final_output
+    if not isinstance(scope_decision, ScopeDecision):
+        raise RuntimeError("Mercury returned an unexpected scope decision.")
+
+    _event(
+        conn,
+        project_id,
+        "Mercury",
+        "SCOPE_CHECK",
+        (
+            f"In scope: {scope_decision.in_scope}. {scope_decision.reason} "
+            + (
+                "Out-of-scope: " + "; ".join(scope_decision.out_of_scope_items)
+                if scope_decision.out_of_scope_items
+                else ""
+            )
+        ),
+    )
+
+    if not scope_decision.in_scope:
+        items = "; ".join(scope_decision.out_of_scope_items) or "additional functionality"
+        _update(conn, project_id, status="SCOPE_DECISION_NEEDED")
+        _set_agent(conn, "Mercury", "WAITING_CLIENT", "Client must choose original scope or change order")
+        scope_answer = collect_client_answers(
+            project_id,
+            args.business_name,
+            questions=[
+                {
+                    "key": "scope_decision",
+                    "question": f"The brief includes work outside the accepted quote: {items}. How should we proceed?",
+                    "why": "A professional agency should not silently deliver extra work for free or surprise the customer with a later charge.",
+                    "required_for": "STAGING",
+                    "options": [
+                        "Proceed with the original quoted scope and defer the extra items",
+                        "Pause the project and prepare a revised quotation / change order",
+                    ],
+                }
+            ],
+            port=8790,
+            heading="Your brief changes the agreed scope.",
+            open_browser=args.demo,
+        )
+        choice = scope_answer.get("scope_decision", "")
+        if choice.startswith("Pause"):
+            _update(conn, project_id, status="CHANGE_ORDER_NEEDED")
+            _event(
+                conn,
+                project_id,
+                "Customer",
+                "CHANGE_ORDER_REQUESTED",
+                f"Customer chose to pause the base build and re-quote: {items}",
+            )
+            _set_agent(conn, "Mercury", "READY", "Website project paused for change order")
+            print("\nThe requested functionality exceeds the accepted quote.")
+            print("Darwin paused the build instead of hiding extra costs or doing unquoted work.")
+            conn.close()
+            return
+        client_brief["deferred_out_of_scope_items"] = items
+        _event(
+            conn,
+            project_id,
+            "Customer",
+            "SCOPE_DEFERRED",
+            f"Customer chose to continue with the accepted base scope and defer: {items}",
+        )
+
+    _set_agent(conn, "Mercury", "READY", "Accepted website scope confirmed")
     _update(conn, project_id, status="DESIGNING")
 
     try:
