@@ -10,6 +10,13 @@ class ProductCard(BaseModel):
     details: list[str] = Field(default_factory=list)
 
 
+class CollectionSpec(BaseModel):
+    name: str
+    eyebrow: str
+    intro: str
+    items: list[ProductCard] = Field(default_factory=list)
+
+
 class FAQItem(BaseModel):
     question: str
     answer: str
@@ -25,10 +32,7 @@ class WebsiteBuildSpec(BaseModel):
     about_heading: str
     about_body: str
     trust_points: list[str]
-    sauna_intro: str
-    ice_bath_intro: str
-    saunas: list[ProductCard]
-    ice_baths: list[ProductCard]
+    collections: list[CollectionSpec] = Field(min_length=2, max_length=2)
     faqs: list[FAQItem]
     address_lines: list[str] = Field(default_factory=list)
     contact_email: str | None = None
@@ -54,16 +58,18 @@ website rebuild. Use the supplied public business website as the primary factual
 
 Rules:
 - Use live public web search and prefer the supplied first-party website.
-- Preserve factual product names, dimensions, prices, lead times, materials, addresses and policies
-  only when you can support them from the public site.
+- Preserve factual product/service names, dimensions, prices, lead times, materials, addresses and
+  policies only when you can support them from the public site.
 - Never invent testimonials, certifications, customer counts, medical claims, performance claims,
   awards, guarantees, phone numbers, email addresses, or business facts.
 - Health/wellness claims must be phrased conservatively and must not be strengthened beyond the source.
 - If something cannot be verified, put it in unverified_claims or customer_assets_needed instead of
   presenting it as fact.
-- The website is lead-generation first: clear navigation, concise premium copy, strong quote CTAs,
+- Return exactly two primary product/service collections. Each collection should represent a useful
+  customer navigation path and may contain representative product/service cards.
+- The website is lead-generation first: clear navigation, concise premium copy, strong enquiry CTAs,
   mobile readability, useful FAQs and transparent buying information.
-- Return 2-4 representative product cards per major product family when supported.
+- Return 2-4 representative cards per collection when supported.
 - Return 4-8 useful FAQs based on public facts.
 - Keep copy polished and restrained. Avoid AI clichés, fake luxury language, excessive adjectives,
   exclamation marks, countdowns, scarcity or fake urgency.
