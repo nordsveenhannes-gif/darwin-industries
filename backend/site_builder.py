@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 from backend.agents.website_studio import CollectionSpec, WebsiteBuildSpec
 
 
-BASE_REQUIRED_PAGES = ["index.html", "about.html", "faq.html", "contact.html"]
+BASE_REQUIRED_PAGES = ["index.html", "about.html", "faq.html", "contact.html", "privacy.html"]
 
 
 def slugify(value: str) -> str:
@@ -161,6 +161,7 @@ def _layout(
     <div class="footer-links">
       {footer_collections}
       <a href="faq.html">FAQ</a>
+      <a href="privacy.html">Privacy</a>
       <a href="contact.html">Get pricing</a>
     </div>
     <div>
@@ -357,10 +358,33 @@ def _contact(spec: WebsiteBuildSpec) -> str:
       </select>
     </label>
     <label>Project notes<textarea name="message" rows="6" required maxlength="2000" placeholder="What you need, location and desired timeline"></textarea></label>
-    <label class="consent"><input type="checkbox" name="consent" required> <span>I’m happy to be contacted about this quotation request.</span></label>
+    <label class="honeypot" aria-hidden="true">Website<input name="company_website" tabindex="-1" autocomplete="off"></label>
+    <label class="consent"><input type="checkbox" name="consent" required> <span>I’m happy to be contacted about this quotation request and have read the <a href="privacy.html">staging privacy notice</a>.</span></label>
     <button class="button button-primary" type="submit">Send enquiry</button>
     <p id="form-status" class="form-status" role="status" aria-live="polite"></p>
   </form>
+</section>
+"""
+
+
+def _privacy(spec: WebsiteBuildSpec) -> str:
+    return f"""
+<section class="page-hero">
+  <p class="eyebrow">Privacy</p>
+  <h1>Staging privacy notice.</h1>
+  <p class="lede">This preview is a pre-launch customer staging environment prepared for {_e(spec.brand_name)}.</p>
+</section>
+<section class="section two-col">
+  <div>
+    <p class="eyebrow">What this preview records</p>
+    <h2>Only the information submitted through the enquiry form.</h2>
+  </div>
+  <div class="prose">
+    <p>The staging form may record the name, email address, selected interest and project message that a tester submits. The local Darwin preview stores those details in its project database so the customer can verify that the form works.</p>
+    <p>No advertising analytics, behavioural tracking pixels or payment checkout are installed by the staging renderer.</p>
+    <p>Before public launch, the customer must review and approve the final privacy wording, data-controller contact details, retention period, cookie requirements and any third-party processors used in production.</p>
+    <p>This staging notice is operational transparency, not legal advice.</p>
+  </div>
 </section>
 """
 
@@ -391,7 +415,7 @@ h1,h2,h3,blockquote{font-family:Georgia,"Times New Roman",serif;font-weight:400;
 .cta-band{margin:0 clamp(20px,4vw,60px) clamp(20px,4vw,60px);background:var(--dark);color:#fff;border-radius:32px;padding:clamp(42px,6vw,76px);display:flex;align-items:end;justify-content:space-between;gap:30px}.cta-band h2{max-width:900px;margin-bottom:0}.cta-band .eyebrow{color:#aaa49b}
 .two-col{display:grid;grid-template-columns:.9fr 1.1fr;gap:8vw}.prose{font-size:19px;color:#504b44}.feature-list{list-style:none;padding:0;margin-top:36px;border-top:1px solid var(--line)}.feature-list li{padding:16px 0;border-bottom:1px solid var(--line)}
 .faq-wrap{max-width:1050px;margin:auto}.faq-item{border-top:1px solid var(--line)}.faq-item:last-child{border-bottom:1px solid var(--line)}.faq-item summary{cursor:pointer;list-style:none;padding:26px 0;font-family:Georgia,serif;font-size:25px}.faq-item summary::-webkit-details-marker{display:none}.faq-item summary:after{content:"+";float:right;font-family:Inter,sans-serif}.faq-item[open] summary:after{content:"−"}.faq-item div{padding:0 0 26px;max-width:800px;color:#5d5850}
-.contact-grid{display:grid;grid-template-columns:.85fr 1.15fr;gap:8vw;align-items:start}.contact-copy{position:sticky;top:130px}.contact-details{margin-top:36px}.contact-details a{text-decoration:underline}.quote-form{background:#fff;padding:clamp(28px,4vw,52px);border-radius:var(--radius);box-shadow:var(--shadow)}.quote-form label{display:grid;gap:8px;font-size:12px;font-weight:700;margin-bottom:20px}.quote-form input,.quote-form select,.quote-form textarea{width:100%;border:1px solid #d6d0c6;border-radius:12px;padding:14px 15px;background:#fbfaf7;color:var(--ink)}.quote-form input:focus,.quote-form select:focus,.quote-form textarea:focus{outline:2px solid #6f8991;outline-offset:2px}.field-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}.consent{display:flex!important;grid-template-columns:auto 1fr!important;align-items:flex-start}.consent input{width:auto;margin-top:4px}.form-status{min-height:24px;font-size:13px}.form-status.success{color:#17653a}.form-status.error{color:#a12b2b}
+.contact-grid{display:grid;grid-template-columns:.85fr 1.15fr;gap:8vw;align-items:start}.contact-copy{position:sticky;top:130px}.contact-details{margin-top:36px}.contact-details a{text-decoration:underline}.quote-form{background:#fff;padding:clamp(28px,4vw,52px);border-radius:var(--radius);box-shadow:var(--shadow)}.quote-form label{display:grid;gap:8px;font-size:12px;font-weight:700;margin-bottom:20px}.quote-form input,.quote-form select,.quote-form textarea{width:100%;border:1px solid #d6d0c6;border-radius:12px;padding:14px 15px;background:#fbfaf7;color:var(--ink)}.quote-form input:focus,.quote-form select:focus,.quote-form textarea:focus{outline:2px solid #6f8991;outline-offset:2px}.field-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}.honeypot{position:absolute!important;left:-9999px!important;width:1px!important;height:1px!important;overflow:hidden!important}.consent{display:flex!important;grid-template-columns:auto 1fr!important;align-items:flex-start}.consent input{width:auto;margin-top:4px}.form-status{min-height:24px;font-size:13px}.form-status.success{color:#17653a}.form-status.error{color:#a12b2b}
 .site-footer{background:#0f0e0c;color:#fff;padding:64px clamp(20px,6vw,90px);display:grid;grid-template-columns:1.3fr .6fr 1fr;gap:50px}.footer-brand{margin-bottom:20px}.footer-note{color:#aaa49b;max-width:480px;font-size:12px}.footer-links{display:grid;gap:10px;font-size:13px}.site-footer .eyebrow{color:#aaa49b}
 .reveal{animation:fadeUp .7s ease both}@keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;animation:none!important;transition:none!important}}
@@ -483,6 +507,11 @@ def render_site(spec: WebsiteBuildSpec, output_dir: Path, image_files: list[str]
             "Get pricing",
             f"Request pricing and discuss your project with {spec.brand_name}.",
             _contact(spec),
+        ),
+        "privacy.html": (
+            "Privacy",
+            "Staging privacy and data-handling information.",
+            _privacy(spec),
         ),
     }
 
