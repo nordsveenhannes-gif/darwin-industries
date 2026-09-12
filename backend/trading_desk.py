@@ -19,6 +19,8 @@ from backend.storage import connect, init_db, now_iso
 MOONSHOT_TRENDING = "https://api.moonshot.cc/tokens/v1/trending/solana"
 MOONSHOT_TRADES = "https://api.moonshot.cc/trades/v1/latest/solana/{token_id}"
 ALPACA_DATA = "https://data.alpaca.markets"
+DEXSCREENER_BOOSTS = "https://api.dexscreener.com/token-boosts/top/v1"
+DEXSCREENER_TOKENS = "https://api.dexscreener.com/tokens/v1/solana/{addresses}"
 
 
 def _http_json(url: str, headers: dict[str, str] | None = None, timeout: int = 15):
@@ -327,13 +329,89 @@ This is simulation only; no live order may be placed.
     return decision, text
 
 
-def _moonshot_cycle(conn, model_budget: list[int], max_model_calls: int) -> None:
-    _set_agent(conn, "Raptor", "WORKING", "Scanning Moonshot public market data for paper setups")
+def _dexscreener_meme_candidates() -> list[dict]:
+    """
+    Fallback market feed when Moonshot's legacy api.moonshot.cc hostname is unavailable.
+    Uses DEX Screener's public Solana endpoints and returns liquid, actively traded candidates.
+    """
+    boosts = _http_json(DEXSCREENER_BOOSTS)
+    if not isinstance(boosts, list):
+        return []
+
+    addresses = []
+    for item in boosts:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("chainId", "")).lower() != "solana":
+            continue
+        address = str(item.get("tokenAddress", "")).strip()
+        if address and address not in addresses:
+            addresses.append(address)
+        if len(addresses) >= 20:
+            break
+
+    if not addresses:
+        return []
+
+    pairs = _http_json(
+        DEXSCREENER_TOKENS.format(addresses=",".join(addresses))
+    )
+    if not isinstance(pairs, list):
+        return []
+
+    best_by_token = {}
+    for pair in pairs:
+        if not isinstance(pair, dict):
+            continue
+        base = pair.get("baseToken") or {}
+        address = str(base.get("address") or "").strip()
+        symbol = str(base.get("symbol") or "").upper().strip()
+        price = _number(pair.get("priceUsd"))
+        liquidity = _number((pair.get("liquidity") or {}).get("usd")) or 0.0
+        volume_h24 = _number((pair.get("volume") or {}).get("h24")) or 0.0
+        txns_h1 = pair.get("txns") or {}
+        h1 = txns_h1.get("h1") or {}
+        activity = int(h1.get("buys") or 0) + int(h1.get("sells") or 0)
+
+        if not address or not symbol or not price:
+            continue
+        # Avoid ultra-thin pools in the simulation.
+        if liquidity < 10000 or volume_h24 < 10000:
+            continue
+
+        rank = liquidity + volume_h24 + activity * 100
+        current = best_by_token.get(address)
+        if current is None or rank > current["rank"]:
+            best_by_token[address] = {
+                "rank": rank,
+                "symbol": symbol,
+                "token_id": address,
+                "price": price,
+                "payload": pair,
+                "liquidity_usd": liquidity,
+                "volume_h24": volume_h24,
+                "activity_h1": activity,
+            }
+
+    return sorted(
+        best_by_token.values(),
+        key=lambda x: x["rank"],
+        reverse=True,
+    )[:6]
+
+
+def _meme_market_bundle(conn):
+    """
+    Prefer Moonshot's documented public API. If its hostname cannot be resolved or reached,
+    automatically fall back to DEX Screener's public Solana market API.
+    """
+    bundle = []
+    prices = {}
+    source = "moonshot"
+
     try:
         trending = _http_json(MOONSHOT_TRENDING)
         tokens = trending if isinstance(trending, list) else trending.get("data", [])
-        bundle = []
-        prices = {}
 
         for token in list(tokens)[:6]:
             if not isinstance(token, dict):
@@ -341,7 +419,7 @@ def _moonshot_cycle(conn, model_budget: list[int], max_model_calls: int) -> None
             symbol, token_id, price = _token_identity(token)
             if not symbol:
                 continue
-            details = {"token": token}
+            details = {"token": token, "market_source": "moonshot"}
             if token_id:
                 try:
                     details["latest_trades"] = _http_json(
@@ -354,6 +432,39 @@ def _moonshot_cycle(conn, model_budget: list[int], max_model_calls: int) -> None
                 prices[symbol] = price
             details["local_price_history"] = _history(conn, "MEME", symbol, 30)
             bundle.append(details)
+
+        if bundle:
+            return bundle, prices, source
+    except Exception as exc:
+        source = "dexscreener_fallback"
+        print(
+            "Moonshot market API unavailable; switching to DEX Screener Solana fallback:",
+            exc,
+        )
+
+    for candidate in _dexscreener_meme_candidates():
+        symbol = candidate["symbol"]
+        price = candidate["price"]
+        details = {
+            "market_source": "dexscreener_fallback",
+            "token_address": candidate["token_id"],
+            "pair": candidate["payload"],
+            "liquidity_usd": candidate["liquidity_usd"],
+            "volume_h24": candidate["volume_h24"],
+            "activity_h1": candidate["activity_h1"],
+        }
+        _snapshot(conn, "MEME", symbol, "dexscreener", price, details)
+        prices[symbol] = price
+        details["local_price_history"] = _history(conn, "MEME", symbol, 30)
+        bundle.append(details)
+
+    return bundle, prices, source
+
+
+def _moonshot_cycle(conn, model_budget: list[int], max_model_calls: int) -> None:
+    _set_agent(conn, "Raptor", "WORKING", "Scanning live Solana meme market data for paper setups")
+    try:
+        bundle, prices, market_source = _meme_market_bundle(conn)
 
         for line in _close_paper_trades(conn, "MEME", prices):
             print("Raptor paper exit:", line)
@@ -401,7 +512,7 @@ def _moonshot_cycle(conn, model_budget: list[int], max_model_calls: int) -> None
             conn,
             "Raptor",
             "READY",
-            f"Moonshot paper decision: {idea.action} {idea.symbol}; "
+            f"Meme paper decision ({market_source}): {idea.action} {idea.symbol}; "
             + ("paper trade opened" if opened else "no paper trade opened"),
         )
     except Exception as exc:
@@ -484,7 +595,7 @@ def _stock_cycle(conn, model_budget: list[int], max_model_calls: int) -> None:
         idea = Runner.run_sync(
             build_apex(),
             "Choose at most one PAPER intraday setup from these live 1-minute bars. "
-            "If no setup is strong, WAIT.\\n\\n"
+            "If no setup is strong, WAIT.\n\n"
             + json.dumps(bundle, ensure_ascii=False)[:80000],
         ).final_output
         model_budget[0] += 1
@@ -561,7 +672,7 @@ def main() -> None:
     model_budget = [0]
     cycle = 0
 
-    print("\\n=== DARWIN TRADING DESK — PAPER MODE ===")
+    print("\n=== DARWIN TRADING DESK — PAPER MODE ===")
     print("Raptor: Moonshot public-data meme momentum scanner")
     print("Apex: intraday equities scanner (Alpaca paper data + owner watchlist)")
     print("Circuit: independent risk gate")
@@ -569,7 +680,7 @@ def main() -> None:
     print("Fake fills use observed prices plus configurable slippage and fees.")
     print(f"Scan interval: {interval} minute(s)")
     print(f"Model-call guardrail: {max_model_calls}")
-    print("Press Ctrl+C to stop safely.\\n")
+    print("Press Ctrl+C to stop safely.\n")
 
     try:
         while datetime.now() < deadline:
@@ -594,7 +705,7 @@ def main() -> None:
                 )
             )
     except KeyboardInterrupt:
-        print("\\nTrading desk stopped by owner.")
+        print("\nTrading desk stopped by owner.")
     finally:
         _set_agent(conn, "Raptor", "OFF_SHIFT", "Paper trading desk stopped")
         _set_agent(conn, "Apex", "OFF_SHIFT", "Paper trading desk stopped")
