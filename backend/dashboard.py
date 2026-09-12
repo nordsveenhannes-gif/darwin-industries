@@ -21,6 +21,7 @@ PAGE = r'''<!doctype html>
 <main>
 <section class="panel"><h2>Company pulse</h2><div class="metrics" id="metrics"></div></section>
 <section class="panel"><h2>Agent floor</h2><div class="agents" id="agents"></div></section>
+<section class="panel"><h2>Website studio</h2><div class="small">Accepted-quote fulfillment, staging build, QA and local customer enquiries.</div><div id="website" style="margin-top:10px"></div></section>
 <section class="panel"><h2>Trading desk — simulation</h2><div class="small">Live market observations, fake fills, estimated slippage/fees. Real-money execution disabled.</div><div class="metrics" id="stats" style="margin-top:10px"></div><div id="trades"></div><div id="signals"></div></section>
 <section class="panel"><h2>Sales pipeline</h2><div id="pipeline"></div></section>
 </main>
@@ -32,6 +33,15 @@ async function refresh(){
   const r=await fetch('/api/state',{cache:'no-store'}); const d=await r.json(); const m=d.metrics;
   document.getElementById('metrics').innerHTML=metric('Workday',m.workday_status||'IDLE')+metric('Prospects',m.total_prospects)+metric('Outreach',m.outreach_sent)+metric('Paper P&L USD',Number(m.paper_pnl||0).toFixed(2))+metric('Open paper trades',m.open_paper_trades||0);
   document.getElementById('agents').innerHTML=d.agents.map(a=>'<div class="agent"><div class="name">'+esc(a.agent)+'</div><div class="role">'+esc(a.title)+'</div><div class="status">'+esc(a.status)+'</div><div class="action">'+esc(a.last_action||'')+'</div><div class="small">conf '+esc(a.confidence)+' • stress '+esc(a.stress)+' • mot '+esc(a.motivation)+'</div></div>').join('');
+  const wp=d.website_project;
+  if(wp){
+    const ev=d.website_events.map(e=>'<tr><td>'+esc(e.agent)+'</td><td>'+esc(e.stage)+'</td><td>'+esc(e.detail)+'</td></tr>').join('');
+    const wl=d.website_leads.map(x=>'<tr><td>'+esc(x.name)+'</td><td>'+esc(x.email)+'</td><td>'+esc(x.interest)+'</td><td>'+esc(x.status)+'</td></tr>').join('');
+    const preview=wp.preview_url?'<a href="'+esc(wp.preview_url)+'" target="_blank" rel="noopener">Open staging preview ↗</a>':'Preview not started';
+    document.getElementById('website').innerHTML='<div class="metric"><span>'+esc(wp.business_name)+' • '+esc(wp.mode)+'</span><b>'+esc(wp.status)+'</b><div class="small">Quote '+esc(wp.currency)+' '+Number(wp.quoted_price||0).toFixed(0)+' • '+preview+' • leads '+esc(d.website_lead_count||0)+'</div></div><h2 style="margin-top:18px">Project events</h2><table><thead><tr><th>Agent</th><th>Stage</th><th>Detail</th></tr></thead><tbody>'+ev+'</tbody></table><h2 style="margin-top:18px">Staging enquiries</h2><table><thead><tr><th>Name</th><th>Email</th><th>Interest</th><th>Status</th></tr></thead><tbody>'+wl+'</tbody></table>';
+  }else{
+    document.getElementById('website').innerHTML='<div class="small">No website project yet.</div>';
+  }
   document.getElementById('stats').innerHTML=d.trader_stats.map(x=>{const pf=x.profit_factor==null?'∞':Number(x.profit_factor).toFixed(2);return '<div class="metric"><span>'+esc(x.agent)+' '+esc(x.asset_class)+'</span><b>$'+Number(x.net_pnl||0).toFixed(2)+'</b><div class="small">closed '+esc(x.closed_trades)+' • win '+Number(x.win_rate||0).toFixed(1)+'% • PF '+esc(pf)+' • drawdown $'+Number(x.max_drawdown||0).toFixed(2)+' • '+esc(x.paper_verdict)+'</div></div>'}).join('');
   const tr=d.trades.map(t=>'<tr><td>'+esc(t.asset_class)+'</td><td>'+esc(t.symbol)+'</td><td>'+esc(t.status)+'</td><td>$'+Number(t.notional_usd||0).toFixed(2)+'</td><td>'+Number(t.entry_price||0).toFixed(6)+'</td><td>'+(t.exit_price==null?'-':Number(t.exit_price).toFixed(6))+'</td><td>$'+Number(t.fees_usd||0).toFixed(2)+'</td><td>$'+Number(t.pnl_usd||0).toFixed(2)+'</td></tr>').join('');
   document.getElementById('trades').innerHTML='<h2 style="margin-top:18px">Paper trades</h2><table><thead><tr><th>Class</th><th>Symbol</th><th>Status</th><th>Notional</th><th>Entry</th><th>Exit</th><th>Fees</th><th>Net P&L</th></tr></thead><tbody>'+tr+'</tbody></table>';
@@ -54,7 +64,16 @@ def state_payload():
     trades=[dict(r) for r in conn.execute("SELECT asset_class,symbol,status,notional_usd,entry_price,exit_price,fees_usd,pnl_usd,opened_at,closed_at FROM paper_trades ORDER BY id DESC LIMIT 20").fetchall()]
     signals=[dict(r) for r in conn.execute("SELECT agent,asset_class,symbol,action,confidence,created_at FROM trade_signals ORDER BY id DESC LIMIT 20").fetchall()]
     prospects=[dict(r) for r in conn.execute("SELECT business_name,city,category,sales_score,status,contact_email FROM prospects ORDER BY id DESC LIMIT 20").fetchall()]
-    payload={'metrics':{'workday_status':session['status'] if session else 'IDLE','total_prospects':int(pipeline['total'] or 0),'draft_ready':int(pipeline['draft_ready'] or 0),'contact_ready':int(pipeline['contact_ready'] or 0),'outreach_sent':int(pipeline['outreach_sent'] or 0),'paper_pnl':float(summary['realized_pnl'] or 0),'open_paper_trades':int(summary['open_count'] or 0),'email_enabled':email_sending_enabled(),'daily_cap':daily_send_cap()},'agents':agents,'prospects':prospects,'trades':trades,'trade_signals':signals,'trader_stats':all_trader_stats(conn)}
+    website_row=conn.execute("SELECT * FROM website_projects ORDER BY id DESC LIMIT 1").fetchone()
+    website_project=dict(website_row) if website_row else None
+    website_events=[]
+    website_leads=[]
+    website_lead_count=0
+    if website_project:
+        website_events=[dict(r) for r in conn.execute("SELECT agent,stage,detail,created_at FROM website_project_events WHERE project_id=? ORDER BY id DESC LIMIT 12",(website_project['id'],)).fetchall()]
+        website_leads=[dict(r) for r in conn.execute("SELECT name,email,interest,status,created_at FROM website_leads WHERE project_id=? ORDER BY id DESC LIMIT 10",(website_project['id'],)).fetchall()]
+        website_lead_count=int(conn.execute("SELECT COUNT(*) n FROM website_leads WHERE project_id=?",(website_project['id'],)).fetchone()['n'])
+    payload={'metrics':{'workday_status':session['status'] if session else 'IDLE','total_prospects':int(pipeline['total'] or 0),'draft_ready':int(pipeline['draft_ready'] or 0),'contact_ready':int(pipeline['contact_ready'] or 0),'outreach_sent':int(pipeline['outreach_sent'] or 0),'paper_pnl':float(summary['realized_pnl'] or 0),'open_paper_trades':int(summary['open_count'] or 0),'email_enabled':email_sending_enabled(),'daily_cap':daily_send_cap()},'agents':agents,'prospects':prospects,'trades':trades,'trade_signals':signals,'trader_stats':all_trader_stats(conn),'website_project':website_project,'website_events':website_events,'website_leads':website_leads,'website_lead_count':website_lead_count}
     conn.close(); return payload
 
 
