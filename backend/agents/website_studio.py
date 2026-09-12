@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
 from agents import Agent, WebSearchTool
 
@@ -22,9 +24,18 @@ class FAQItem(BaseModel):
     answer: str
 
 
+class DesignSystemSpec(BaseModel):
+    primary_hex: str = Field(default="#9E3D22", pattern=r"^#[0-9A-Fa-f]{6}$")
+    secondary_hex: str = Field(default="#366575", pattern=r"^#[0-9A-Fa-f]{6}$")
+    accent_hex: str = Field(default="#C79A63", pattern=r"^#[0-9A-Fa-f]{6}$")
+    heading_style: Literal["editorial", "modern", "minimal"] = "editorial"
+    visual_direction: str = "Restrained premium editorial design with generous spacing."
+
+
 class WebsiteBuildSpec(BaseModel):
     brand_name: str
     website_url: str
+    design_system: DesignSystemSpec = Field(default_factory=DesignSystemSpec)
     positioning: str
     hero_eyebrow: str
     hero_heading: str
@@ -145,6 +156,10 @@ Rules:
   presenting it as fact.
 - Return exactly two primary product/service collections. Each collection should represent a useful
   customer navigation path and may contain representative product/service cards.
+- Create a restrained client-specific design_system. Use known brand cues from the source/client brief
+  when supported; otherwise choose a tasteful palette rather than pretending colors are official.
+- Avoid the same visual identity for every customer. heading_style and visual_direction should reflect
+  the client's requested brand direction while keeping the site readable and professional.
 - The website is lead-generation first: clear navigation, concise premium copy, strong enquiry CTAs,
   mobile readability, useful FAQs and transparent buying information.
 - Return 2-4 representative cards per collection when supported.
