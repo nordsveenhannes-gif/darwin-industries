@@ -54,6 +54,11 @@ class StagingHandler(SimpleHTTPRequestHandler):
         interest = str(payload.get("interest") or "").strip()
         message = str(payload.get("message") or "").strip()
         consent = bool(payload.get("consent"))
+        honeypot = str(payload.get("company_website") or "").strip()
+
+        if honeypot:
+            self._json(201, {"ok": True, "message": "Enquiry recorded."})
+            return
 
         if not (2 <= len(name) <= 80):
             self._json(400, {"error": "Please enter your name."})
