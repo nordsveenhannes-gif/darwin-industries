@@ -35,6 +35,26 @@ def _number(value):
         return None
 
 
+def _sim_slippage_bps(asset_class: str) -> float:
+    name = "DARWIN_MEME_SIM_SLIPPAGE_BPS" if asset_class == "MEME" else "DARWIN_STOCK_SIM_SLIPPAGE_BPS"
+    default = "50" if asset_class == "MEME" else "5"
+    try:
+        value = float(os.getenv(name, default))
+    except ValueError:
+        value = float(default)
+    return max(0.0, min(value, 500.0))
+
+
+def _sim_fee_usd(asset_class: str, notional_usd: float) -> float:
+    if asset_class == "MEME":
+        mode = os.getenv("DARWIN_MEME_SIM_FEE_MODE", "moonshot_app").strip().lower()
+        if mode == "moonshot_app":
+            if notional_usd <= 100:
+                return max(0.99, notional_usd * 0.025)
+            return notional_usd * 0.01
+    return 0.0
+
+
 def _walk_find(obj, keys: set[str]):
     if isinstance(obj, dict):
         for key, value in obj.items():
@@ -136,12 +156,17 @@ def _record_signal(conn, agent: str, asset_class: str, idea, risk_text: str = ""
     return int(cur.lastrowid)
 
 
-def _open_paper_trade(conn, signal_id: int, asset_class: str, idea, notional_usd: float) -> bool:
-    if idea.action.upper() != "BUY":
+def _open_paper_trade(
+    conn,
+    signal_id: int,
+    asset_class: str,
+    idea,
+    notional_usd: float,
+    market_price: float | None,
+) -> bool:
+    if idea.action.upper() != "BUY" or not market_price:
         return False
-    if not idea.entry_price or not idea.stop_price or not idea.take_profit_price:
-        return False
-    if not (idea.stop_price < idea.entry_price < idea.take_profit_price):
+    if not idea.stop_price or not idea.take_profit_price:
         return False
 
     existing = conn.execute(
@@ -151,8 +176,13 @@ def _open_paper_trade(conn, signal_id: int, asset_class: str, idea, notional_usd
     if existing:
         return False
 
+    slippage_bps = _sim_slippage_bps(asset_class)
+    entry_price = market_price * (1 + slippage_bps / 10000.0)
+    if not (idea.stop_price < entry_price < idea.take_profit_price):
+        return False
+
     max_risk_pct = 0.06 if asset_class == "MEME" else 0.025
-    risk_pct = (idea.entry_price - idea.stop_price) / idea.entry_price
+    risk_pct = (entry_price - idea.stop_price) / entry_price
     if risk_pct <= 0 or risk_pct > max_risk_pct:
         return False
 
@@ -160,24 +190,29 @@ def _open_paper_trade(conn, signal_id: int, asset_class: str, idea, notional_usd
     if asset_class == "STOCK":
         max_hold = 390
 
+    entry_fee = _sim_fee_usd(asset_class, notional_usd)
+
     conn.execute(
         """
         INSERT INTO paper_trades(
             signal_id, asset_class, symbol, side, notional_usd,
             entry_price, stop_price, target_price, max_hold_minutes,
-            status, pnl_usd, stop_text, target_text, opened_at
+            status, gross_pnl_usd, fees_usd, slippage_bps, pnl_usd,
+            stop_text, target_text, opened_at
         )
-        VALUES (?, ?, ?, 'BUY', ?, ?, ?, ?, ?, 'OPEN', 0, ?, ?, ?)
+        VALUES (?, ?, ?, 'BUY', ?, ?, ?, ?, ?, 'OPEN', 0, ?, ?, 0, ?, ?, ?)
         """,
         (
             signal_id,
             asset_class,
             idea.symbol,
             notional_usd,
-            idea.entry_price,
+            entry_price,
             idea.stop_price,
             idea.take_profit_price,
             max_hold,
+            entry_fee,
+            slippage_bps,
             idea.invalidation,
             idea.take_profit_logic,
             now_iso(),
@@ -217,18 +252,36 @@ def _close_paper_trades(conn, asset_class: str, prices: dict[str, float]) -> lis
                     reason = "EOD"
 
         if reason:
-            pnl = row["notional_usd"] * ((price - row["entry_price"]) / row["entry_price"])
+            slippage_bps = float(row["slippage_bps"] or _sim_slippage_bps(asset_class))
+            exit_price = price * (1 - slippage_bps / 10000.0)
+            gross_pnl = row["notional_usd"] * (
+                (exit_price - row["entry_price"]) / row["entry_price"]
+            )
+            total_fees = float(row["fees_usd"] or 0) + _sim_fee_usd(
+                asset_class, row["notional_usd"]
+            )
+            pnl = gross_pnl - total_fees
             conn.execute(
                 """
                 UPDATE paper_trades
-                SET exit_price=?, status=?, pnl_usd=?, closed_at=?
+                SET exit_price=?, status=?, gross_pnl_usd=?, fees_usd=?,
+                    pnl_usd=?, closed_at=?
                 WHERE id=?
                 """,
-                (price, f"CLOSED_{reason}", pnl, now_iso(), row["id"]),
+                (
+                    exit_price,
+                    f"CLOSED_{reason}",
+                    gross_pnl,
+                    total_fees,
+                    pnl,
+                    now_iso(),
+                    row["id"],
+                ),
             )
             conn.commit()
             closed.append(
-                f"{row['symbol']} {reason} at {price:.8f}; paper P&L {pnl:+.2f} USD"
+                f"{row['symbol']} {reason} at {exit_price:.8f}; "
+                f"gross {gross_pnl:+.2f}, costs {total_fees:.2f}, net {pnl:+.2f} USD"
             )
     return closed
 
@@ -335,7 +388,14 @@ def _moonshot_cycle(conn, model_budget: list[int], max_model_calls: int) -> None
                 float(os.getenv("DARWIN_MEME_PAPER_NOTIONAL_USD", "10")),
                 decision.max_notional_usd,
             )
-            opened = _open_paper_trade(conn, signal_id, "MEME", idea, cap)
+            opened = _open_paper_trade(
+                conn,
+                signal_id,
+                "MEME",
+                idea,
+                cap,
+                prices.get(idea.symbol.upper()),
+            )
 
         _set_agent(
             conn,
@@ -447,7 +507,14 @@ def _stock_cycle(conn, model_budget: list[int], max_model_calls: int) -> None:
                 float(os.getenv("DARWIN_STOCK_PAPER_NOTIONAL_USD", "100")),
                 decision.max_notional_usd,
             )
-            opened = _open_paper_trade(conn, signal_id, "STOCK", idea, cap)
+            opened = _open_paper_trade(
+                conn,
+                signal_id,
+                "STOCK",
+                idea,
+                cap,
+                prices.get(idea.symbol.upper()),
+            )
 
         _set_agent(
             conn,
@@ -499,6 +566,7 @@ def main() -> None:
     print("Apex: intraday equities scanner (Alpaca paper data + owner watchlist)")
     print("Circuit: independent risk gate")
     print("REAL MONEY EXECUTION: DISABLED")
+    print("Fake fills use observed prices plus configurable slippage and fees.")
     print(f"Scan interval: {interval} minute(s)")
     print(f"Model-call guardrail: {max_model_calls}")
     print("Press Ctrl+C to stop safely.\\n")
