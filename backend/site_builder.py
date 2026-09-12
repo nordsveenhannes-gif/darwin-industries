@@ -6,17 +6,10 @@ from html import escape
 from pathlib import Path
 from urllib.parse import urlparse
 
-from backend.agents.website_studio import WebsiteBuildSpec
+from backend.agents.website_studio import CollectionSpec, WebsiteBuildSpec
 
 
-REQUIRED_PAGES = [
-    "index.html",
-    "saunas.html",
-    "ice-baths.html",
-    "about.html",
-    "faq.html",
-    "contact.html",
-]
+BASE_REQUIRED_PAGES = ["index.html", "about.html", "faq.html", "contact.html"]
 
 
 def slugify(value: str) -> str:
@@ -28,8 +21,34 @@ def _e(value: object) -> str:
     return escape("" if value is None else str(value), quote=True)
 
 
-def _list(items: list[str], class_name: str = "detail-list") -> str:
+def _list(items: list[str]) -> str:
     return "".join(f'<li>{_e(x)}</li>' for x in items)
+
+
+def _brand_mark(name: str) -> str:
+    words = [w for w in re.split(r"\s+", name.strip()) if w]
+    initials = [w[0].upper() for w in words[:2]]
+    if not initials:
+        return "D"
+    return '<span>+</span>'.join(_e(x) for x in initials)
+
+
+def _collection_entries(spec: WebsiteBuildSpec):
+    reserved = {"index", "about", "faq", "contact", "privacy"}
+    used = set()
+    entries = []
+    for index, collection in enumerate(spec.collections[:2], 1):
+        base = slugify(collection.name)
+        if base in reserved:
+            base = f"{base}-collection"
+        candidate = base
+        suffix = 2
+        while candidate in used:
+            candidate = f"{base}-{suffix}"
+            suffix += 1
+        used.add(candidate)
+        entries.append((collection, f"{candidate}.html", index))
+    return entries
 
 
 def _product_cards(items, images: list[str] | None = None, offset: int = 0) -> str:
@@ -71,18 +90,14 @@ def _product_cards(items, images: list[str] | None = None, offset: int = 0) -> s
     return "".join(cards)
 
 
-def _nav(current: str) -> str:
-    links = [
-        ("index.html", "Home"),
-        ("saunas.html", "Saunas"),
-        ("ice-baths.html", "Ice Baths"),
-        ("about.html", "About"),
-        ("faq.html", "FAQ"),
-    ]
+def _nav(spec: WebsiteBuildSpec, current: str) -> str:
+    links = [("index.html", "Home")]
+    links.extend((filename, collection.name) for collection, filename, _ in _collection_entries(spec))
+    links.extend([("about.html", "About"), ("faq.html", "FAQ")])
     html = []
     for href, label in links:
         active = ' aria-current="page"' if href == current else ""
-        html.append(f'<a href="{href}"{active}>{label}</a>')
+        html.append(f'<a href="{href}"{active}>{_e(label)}</a>')
     return "".join(html)
 
 
@@ -95,6 +110,11 @@ def _layout(
 ) -> str:
     brand = _e(spec.brand_name)
     canonical_hint = _e(spec.website_url.rstrip("/"))
+    footer_collections = "".join(
+        f'<a href="{filename}">{_e(collection.name)}</a>'
+        for collection, filename, _ in _collection_entries(spec)
+    )
+    mark = _brand_mark(spec.brand_name)
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -108,6 +128,7 @@ def _layout(
   <meta property="og:description" content="{_e(description)}">
   <meta property="og:type" content="website">
   <meta name="darwin-source-site" content="{canonical_hint}">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="assets/styles.css">
   <script defer src="assets/app.js"></script>
 </head>
@@ -115,14 +136,14 @@ def _layout(
   <a class="skip-link" href="#main">Skip to content</a>
   <header class="site-header">
     <a class="brand" href="index.html" aria-label="{brand} home">
-      <span class="brand-mark" aria-hidden="true">F<span>+</span>I</span>
+      <span class="brand-mark" aria-hidden="true">{mark}</span>
       <span>{brand}</span>
     </a>
     <button class="menu-button" type="button" aria-expanded="false" aria-controls="site-nav">
       <span></span><span></span><span></span><span class="sr-only">Menu</span>
     </button>
     <nav id="site-nav" class="site-nav" aria-label="Main navigation">
-      {_nav(current)}
+      {_nav(spec, current)}
       <a class="nav-cta" href="contact.html">Get pricing</a>
     </nav>
   </header>
@@ -132,14 +153,13 @@ def _layout(
   <footer class="site-footer">
     <div>
       <a class="brand footer-brand" href="index.html">
-        <span class="brand-mark" aria-hidden="true">F<span>+</span>I</span>
+        <span class="brand-mark" aria-hidden="true">{mark}</span>
         <span>{brand}</span>
       </a>
-      <p class="footer-note">Premium hot and cold wellbeing equipment. Staging rebuild prepared by Darwin Industries.</p>
+      <p class="footer-note">{_e(spec.positioning)}</p>
     </div>
     <div class="footer-links">
-      <a href="saunas.html">Saunas</a>
-      <a href="ice-baths.html">Ice Baths</a>
+      {footer_collections}
       <a href="faq.html">FAQ</a>
       <a href="contact.html">Get pricing</a>
     </div>
@@ -158,8 +178,8 @@ def _home(spec: WebsiteBuildSpec, images: list[str] | None = None) -> str:
         f'<div class="trust-item"><span>{i:02d}</span><p>{_e(point)}</p></div>'
         for i, point in enumerate(spec.trust_points[:4], 1)
     )
-    sauna_name = spec.saunas[0].name if spec.saunas else "Infrared saunas"
-    ice_name = spec.ice_baths[0].name if spec.ice_baths else "Ice baths"
+    entries = _collection_entries(spec)
+    first, second = entries[0], entries[1]
     images = images or []
     hero_style = ""
     if images:
@@ -175,18 +195,18 @@ def _home(spec: WebsiteBuildSpec, images: list[str] | None = None) -> str:
     <p class="lede">{_e(spec.hero_subheading)}</p>
     <div class="button-row">
       <a class="button button-primary" href="contact.html">Get pricing</a>
-      <a class="button button-ghost" href="#collections">Explore collections</a>
+      <a class="button button-ghost" href="#collections">Explore</a>
     </div>
   </div>
-  <div class="hero-art reveal"{hero_style} aria-label="Fire and Ice visual">
+  <div class="hero-art reveal"{hero_style} aria-label="{_e(spec.brand_name)} feature visual">
     <div class="orb orb-fire"></div>
     <div class="orb orb-ice"></div>
     <div class="glass-card">
-      <span>FIRE</span>
-      <strong>Warmth, crafted.</strong>
+      <span>{_e(first[0].eyebrow)}</span>
+      <strong>{_e(first[0].name)}</strong>
       <hr>
-      <span>ICE</span>
-      <strong>Cold, refined.</strong>
+      <span>{_e(second[0].eyebrow)}</span>
+      <strong>{_e(second[0].name)}</strong>
     </div>
   </div>
 </section>
@@ -195,63 +215,56 @@ def _home(spec: WebsiteBuildSpec, images: list[str] | None = None) -> str:
 
 <section id="collections" class="section">
   <div class="section-heading reveal">
-    <p class="eyebrow">Two disciplines. One ritual.</p>
-    <h2>Build a private wellbeing space around the way you want to feel.</h2>
+    <p class="eyebrow">Explore</p>
+    <h2>Two clear paths into the { _e(spec.brand_name) } experience.</h2>
   </div>
   <div class="collection-grid">
-    <a class="collection collection-fire reveal" href="saunas.html">
-      <span class="eyebrow">Fire / Infrared</span>
-      <h3>{_e(sauna_name)}</h3>
-      <p>{_e(spec.sauna_intro)}</p>
-      <span class="text-link">Explore saunas →</span>
+    <a class="collection collection-fire reveal" href="{first[1]}">
+      <span class="eyebrow">{_e(first[0].eyebrow)}</span>
+      <h3>{_e(first[0].name)}</h3>
+      <p>{_e(first[0].intro)}</p>
+      <span class="text-link">Explore {_e(first[0].name)} →</span>
     </a>
-    <a class="collection collection-ice reveal" href="ice-baths.html">
-      <span class="eyebrow">Ice / Cold immersion</span>
-      <h3>{_e(ice_name)}</h3>
-      <p>{_e(spec.ice_bath_intro)}</p>
-      <span class="text-link">Explore ice baths →</span>
+    <a class="collection collection-ice reveal" href="{second[1]}">
+      <span class="eyebrow">{_e(second[0].eyebrow)}</span>
+      <h3>{_e(second[0].name)}</h3>
+      <p>{_e(second[0].intro)}</p>
+      <span class="text-link">Explore {_e(second[0].name)} →</span>
     </a>
   </div>
 </section>
 
 <section class="statement">
-  <p class="eyebrow">Designed around the product</p>
+  <p class="eyebrow">Designed around the customer</p>
   <blockquote>{_e(spec.positioning)}</blockquote>
-  <a class="button button-primary" href="contact.html">Discuss your space</a>
+  <a class="button button-primary" href="contact.html">Start a conversation</a>
 </section>
 """
 
 
-def _products_page(spec: WebsiteBuildSpec, kind: str, images: list[str] | None = None) -> str:
-    if kind == "saunas":
-        title = "Infrared saunas"
-        intro = spec.sauna_intro
-        items = spec.saunas
-        tone = "fire"
-        image_offset = 1
-    else:
-        title = "Ice baths"
-        intro = spec.ice_bath_intro
-        items = spec.ice_baths
-        tone = "ice"
-        image_offset = 4
+def _collection_page(
+    collection: CollectionSpec,
+    tone: str,
+    images: list[str] | None = None,
+    image_offset: int = 1,
+) -> str:
     images = images or []
     return f"""
 <section class="page-hero page-hero-{tone}">
-  <p class="eyebrow">{_e(kind.replace("-", " ").title())}</p>
-  <h1>{_e(title)}</h1>
-  <p class="lede">{_e(intro)}</p>
+  <p class="eyebrow">{_e(collection.eyebrow)}</p>
+  <h1>{_e(collection.name)}</h1>
+  <p class="lede">{_e(collection.intro)}</p>
   <a class="button button-primary" href="contact.html">Request pricing</a>
 </section>
 <section class="section">
   <div class="section-heading">
     <p class="eyebrow">Collection</p>
-    <h2>Choose the format that fits your space.</h2>
+    <h2>Explore the options and find the right fit.</h2>
   </div>
-  <div class="product-grid">{_product_cards(items, images, image_offset)}</div>
+  <div class="product-grid">{_product_cards(collection.items, images, image_offset)}</div>
 </section>
 <section class="cta-band">
-  <div><p class="eyebrow">Need help choosing?</p><h2>Tell us about your room, preferred finish and timeline.</h2></div>
+  <div><p class="eyebrow">Need help choosing?</p><h2>Tell us what you need, your location and your preferred timeline.</h2></div>
   <a class="button button-light" href="contact.html">Start an enquiry</a>
 </section>
 """
@@ -268,7 +281,7 @@ def _about(spec: WebsiteBuildSpec) -> str:
 <section class="section two-col">
   <div class="reveal">
     <p class="eyebrow">Our approach</p>
-    <h2>Premium equipment should be clear to buy and straightforward to own.</h2>
+    <h2>A premium customer experience should be clear from the first question to the final handoff.</h2>
   </div>
   <div class="prose reveal">
     <p>{_e(spec.positioning)}</p>
@@ -276,7 +289,7 @@ def _about(spec: WebsiteBuildSpec) -> str:
   </div>
 </section>
 <section class="cta-band">
-  <div><p class="eyebrow">Planning a project?</p><h2>Share your space and we’ll help narrow the options.</h2></div>
+  <div><p class="eyebrow">Planning a project?</p><h2>Share what you need and we’ll help narrow the options.</h2></div>
   <a class="button button-light" href="contact.html">Get pricing</a>
 </section>
 """
@@ -296,7 +309,7 @@ def _faq(spec: WebsiteBuildSpec) -> str:
 <section class="page-hero">
   <p class="eyebrow">FAQ</p>
   <h1>Useful answers before you request a quote.</h1>
-  <p class="lede">A concise guide to product choices, delivery, customisation and the quotation process.</p>
+  <p class="lede">A concise guide to products, services, delivery, customisation and the quotation process.</p>
 </section>
 <section class="section faq-wrap">{items}</section>
 """
@@ -310,17 +323,21 @@ def _contact(spec: WebsiteBuildSpec) -> str:
     if spec.contact_phone:
         contact_bits.append(f'<a href="tel:{_e(spec.contact_phone)}">{_e(spec.contact_phone)}</a>')
     contacts = "<br>".join(contact_bits)
+    options = "".join(
+        f"<option>{_e(collection.name)}</option>" for collection in spec.collections[:2]
+    )
+    combined = " + ".join(collection.name for collection in spec.collections[:2])
     return f"""
 <section class="page-hero">
   <p class="eyebrow">Get pricing</p>
-  <h1>Tell us what you’re building.</h1>
-  <p class="lede">Share the product, room and timing you have in mind. This staging form works locally and records the enquiry in Darwin’s project database.</p>
+  <h1>Tell us what you’re planning.</h1>
+  <p class="lede">Share what you need, your location and your timing. This staging form works locally and records the enquiry in Darwin’s project database.</p>
 </section>
 <section class="section contact-grid">
   <div class="contact-copy reveal">
     <p class="eyebrow">Project enquiry</p>
     <h2>Start with the essentials.</h2>
-    <p>We’ll use your details to prepare the right product conversation. No fake urgency, no automatic purchase and no hidden checkout.</p>
+    <p>We’ll use your details to prepare the right conversation. No fake urgency, no automatic purchase and no hidden checkout.</p>
     <div class="contact-details">
       {f'<p><strong>Business address</strong><br>{address}</p>' if address else ''}
       {f'<p><strong>Contact</strong><br>{contacts}</p>' if contacts else ''}
@@ -331,16 +348,15 @@ def _contact(spec: WebsiteBuildSpec) -> str:
       <label>First name<input name="name" autocomplete="name" required maxlength="80"></label>
       <label>Email<input type="email" name="email" autocomplete="email" required maxlength="160"></label>
     </div>
-    <label>Product interest
+    <label>Interest
       <select name="interest" required>
         <option value="">Choose one</option>
-        <option>Infrared sauna</option>
-        <option>Ice bath</option>
-        <option>Sauna + ice bath</option>
+        {options}
+        <option>{_e(combined)}</option>
         <option>Commercial / bespoke project</option>
       </select>
     </label>
-    <label>Project notes<textarea name="message" rows="6" required maxlength="2000" placeholder="Room, preferred finish, location and desired timeline"></textarea></label>
+    <label>Project notes<textarea name="message" rows="6" required maxlength="2000" placeholder="What you need, location and desired timeline"></textarea></label>
     <label class="consent"><input type="checkbox" name="consent" required> <span>I’m happy to be contacted about this quotation request.</span></label>
     <button class="button button-primary" type="submit">Send enquiry</button>
     <p id="form-status" class="form-status" role="status" aria-live="polite"></p>
@@ -446,21 +462,12 @@ def render_site(spec: WebsiteBuildSpec, output_dir: Path, image_files: list[str]
     assets.mkdir(exist_ok=True)
     image_files = image_files or []
 
+    entries = _collection_entries(spec)
     pages = {
         "index.html": (
-            "Premium wellness equipment",
+            f"{spec.brand_name}",
             spec.hero_subheading,
             _home(spec, image_files),
-        ),
-        "saunas.html": (
-            "Infrared saunas",
-            spec.sauna_intro,
-            _products_page(spec, "saunas", image_files),
-        ),
-        "ice-baths.html": (
-            "Premium ice baths",
-            spec.ice_bath_intro,
-            _products_page(spec, "ice-baths", image_files),
         ),
         "about.html": (
             "About",
@@ -469,15 +476,27 @@ def render_site(spec: WebsiteBuildSpec, output_dir: Path, image_files: list[str]
         ),
         "faq.html": (
             "Frequently asked questions",
-            "Answers about products, delivery, customisation and quotations.",
+            "Answers about products, services, delivery, customisation and quotations.",
             _faq(spec),
         ),
         "contact.html": (
             "Get pricing",
-            "Request pricing and discuss your Fire & Ice wellbeing project.",
+            f"Request pricing and discuss your project with {spec.brand_name}.",
             _contact(spec),
         ),
     }
+
+    for collection, filename, index in entries:
+        pages[filename] = (
+            collection.name,
+            collection.intro,
+            _collection_page(
+                collection,
+                "fire" if index == 1 else "ice",
+                image_files,
+                1 if index == 1 else 4,
+            ),
+        )
 
     for filename, (title, description, body) in pages.items():
         (output_dir / filename).write_text(
@@ -485,8 +504,13 @@ def render_site(spec: WebsiteBuildSpec, output_dir: Path, image_files: list[str]
             encoding="utf-8",
         )
 
+    favicon = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<rect width="64" height="64" rx="16" fill="#171512"/>
+<text x="32" y="39" text-anchor="middle" font-family="Georgia,serif" font-size="25" fill="#f4f0e8">{escape(spec.brand_name[:1].upper())}</text>
+</svg>"""
     (assets / "styles.css").write_text(STYLES, encoding="utf-8")
     (assets / "app.js").write_text(APP_JS, encoding="utf-8")
+    (assets / "favicon.svg").write_text(favicon, encoding="utf-8")
     (output_dir / "robots.txt").write_text(
         "User-agent: *\nDisallow: /\n",
         encoding="utf-8",
@@ -497,7 +521,8 @@ def render_site(spec: WebsiteBuildSpec, output_dir: Path, image_files: list[str]
                 "brand": spec.brand_name,
                 "source_website": spec.website_url,
                 "staging": True,
-                "pages": REQUIRED_PAGES,
+                "pages": list(pages.keys()),
+                "collections": [c.name for c, _, _ in entries],
                 "unverified_claims": spec.unverified_claims,
                 "customer_assets_needed": spec.customer_assets_needed,
                 "evidence_urls": spec.evidence_urls,
@@ -511,7 +536,16 @@ def render_site(spec: WebsiteBuildSpec, output_dir: Path, image_files: list[str]
 
 def validate_site(output_dir: Path) -> list[str]:
     errors: list[str] = []
-    for name in REQUIRED_PAGES:
+    expected = list(BASE_REQUIRED_PAGES)
+    build_file = output_dir / "build.json"
+    if build_file.exists():
+        try:
+            payload = json.loads(build_file.read_text(encoding="utf-8"))
+            expected = list(payload.get("pages") or expected)
+        except Exception:
+            errors.append("build.json is not valid JSON")
+
+    for name in expected:
         path = output_dir / name
         if not path.exists():
             errors.append(f"Missing page: {name}")
@@ -522,7 +556,13 @@ def validate_site(output_dir: Path) -> list[str]:
         if 'name="robots" content="noindex,nofollow"' not in text:
             errors.append(f"Staging noindex missing: {name}")
 
-    for name in ["assets/styles.css", "assets/app.js", "build.json", "robots.txt"]:
+    for name in [
+        "assets/styles.css",
+        "assets/app.js",
+        "assets/favicon.svg",
+        "build.json",
+        "robots.txt",
+    ]:
         if not (output_dir / name).exists():
             errors.append(f"Missing asset: {name}")
 
@@ -532,7 +572,6 @@ def validate_site(output_dir: Path) -> list[str]:
         if 'id="quote-form"' not in text or "/api/quote" not in APP_JS:
             errors.append("Functional quote form wiring missing")
 
-    # Verify internal .html links point to generated pages.
     generated = {p.name for p in output_dir.glob("*.html")}
     link_pattern = re.compile(r'href="([^"]+\.html)(?:#[^"]*)?"')
     for page in output_dir.glob("*.html"):
