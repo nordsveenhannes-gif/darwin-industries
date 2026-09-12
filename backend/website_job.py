@@ -17,6 +17,7 @@ from backend.agents.website_studio import (
     build_website_nova,
 )
 from backend.site_builder import render_site, slugify, validate_site
+from backend.site_export import export_deployment_package
 from backend.site_server import serve_site
 from backend.storage import connect, init_db, now_iso
 
@@ -467,6 +468,14 @@ PASS only when:
             raise RuntimeError("Static website validation failed: " + " | ".join(errors))
 
         _write_project_files(project_root, quote, spec, ux, qa)
+        deploy_dir = export_deployment_package(project_root, site_dir)
+        _event(
+            conn,
+            project_id,
+            "Midas",
+            "DEPLOY_PACKAGE_READY",
+            f"Standalone deployable website application exported to {deploy_dir}.",
+        )
         preview_url = f"http://127.0.0.1:{max(1024, min(args.port, 65535))}"
         _update(
             conn,
@@ -492,8 +501,9 @@ PASS only when:
         print("\nBuild validation: PASS")
         print(f"Project files: {project_root}")
         print(f"Staging site: {site_dir}")
-        print("Pages: Home / Saunas / Ice Baths / About / FAQ / Get Pricing")
-        print("Quote form backend: enabled in local staging server")
+        print(f"Standalone deploy package: {deploy_dir}")
+        print("Pages: Home / two primary collection pages / About / FAQ / Get Pricing")
+        print("Quote form backend: enabled in local staging server and deploy package")
         print("Public launch: disabled until customer approval and production credentials exist")
 
         should_serve = args.serve or (args.demo and not args.no_serve)
