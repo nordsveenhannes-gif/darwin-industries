@@ -9,6 +9,9 @@ class StockTradeIdea(BaseModel):
     thesis: str
     support_evidence: str
     momentum_evidence: str
+    entry_price: float | None = Field(default=None, gt=0)
+    stop_price: float | None = Field(default=None, gt=0)
+    take_profit_price: float | None = Field(default=None, gt=0)
     invalidation: str
     take_profit_logic: str
     flatten_before_close: bool = True
@@ -27,6 +30,7 @@ Rules:
 - Require a defined invalidation before entry.
 - Never average down.
 - No leverage, short options, or overnight holds.
+- BUY ideas must include entry_price, stop_price, and take_profit_price based only on supplied prices.
 - Every idea must be intended to close before the regular session ends.
 - Use only the supplied data.
 """
