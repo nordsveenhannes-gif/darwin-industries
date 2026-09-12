@@ -1,0 +1,501 @@
+from __future__ import annotations
+
+import argparse
+import json
+import os
+from pathlib import Path
+
+from agents import Runner
+from dotenv import load_dotenv
+
+from backend.agents.sentinel import build_sentinel
+from backend.agents.website_studio import (
+    UXReview,
+    WebsiteBuildSpec,
+    build_website_forge,
+    build_website_nova,
+)
+from backend.site_builder import render_site, slugify, validate_site
+from backend.site_server import serve_site
+from backend.storage import connect, init_db, now_iso
+
+
+def _set_agent(conn, agent: str, status: str, action: str) -> None:
+    conn.execute(
+        """
+        UPDATE agent_state
+        SET status=?, last_action=?, updated_at=?
+        WHERE agent=?
+        """,
+        (status, action, now_iso(), agent),
+    )
+    conn.commit()
+
+
+def _event(conn, project_id: int, agent: str, stage: str, detail: str) -> None:
+    conn.execute(
+        """
+        INSERT INTO website_project_events(project_id, agent, stage, detail, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (project_id, agent, stage, detail, now_iso()),
+    )
+    conn.commit()
+
+
+def _update(conn, project_id: int, **fields) -> None:
+    if not fields:
+        return
+    fields["updated_at"] = now_iso()
+    columns = ", ".join(f"{key}=?" for key in fields)
+    values = list(fields.values()) + [project_id]
+    conn.execute(f"UPDATE website_projects SET {columns} WHERE id=?", values)
+    conn.commit()
+
+
+def _qa_passed(text: str) -> bool:
+    return "STATUS: PASS" in text.upper()
+
+
+def _quote_text(
+    business_name: str,
+    source_website: str,
+    price: float,
+    currency: str,
+) -> str:
+    symbol = "£" if currency.upper() == "GBP" else f"{currency.upper()} "
+    price_text = f"{symbol}{price:,.0f}"
+    deposit = price / 2
+    deposit_text = f"{symbol}{deposit:,.0f}"
+    return f"""# Website Rebuild Quotation — {business_name}
+
+Source website: {source_website}
+
+## Fixed project price
+**{price_text} total**
+
+Payment structure for a real customer:
+- **50% ({deposit_text})** after quote acceptance and before production work begins.
+- **50% ({deposit_text})** after staging approval and before public launch.
+
+A Darwin demo never counts the simulated acceptance above as revenue or payment.
+
+## Included
+- Premium responsive redesign.
+- Six core pages: Home, Saunas, Ice Baths, About, FAQ and Get Pricing.
+- Existing verified business/product information reorganised for clarity.
+- Functional quotation/enquiry form.
+- Mobile navigation and responsive layouts.
+- Accessibility basics: keyboard-friendly controls, focus states and reduced-motion support.
+- Staging build with search-engine indexing disabled.
+- Basic page titles and descriptions.
+- Two consolidated revision rounds.
+- Pre-launch QA of navigation, internal links, forms and staging safeguards.
+- Launch assistance once customer-owned hosting/domain access is supplied securely.
+
+## Not included unless quoted separately
+- E-commerce checkout or payment processing.
+- Custom booking systems.
+- Paid plugins, paid stock photography or paid fonts.
+- New professional photography/video.
+- Copy claims, testimonials, certifications or product facts not supplied or verified.
+- Complex CRM integrations.
+- Ongoing SEO, advertising, hosting or maintenance.
+- Domain purchase or transfer fees.
+
+## Delivery target
+7–10 business days after the real project has:
+1. an accepted scope,
+2. verified deposit,
+3. confirmed rights to supplied/reused assets,
+4. required product/legal information.
+
+## Revision and acceptance
+Two consolidated revision rounds are included. The customer reviews the staging URL before launch.
+Darwin will not replace the live website without explicit launch approval.
+
+Acceptance means:
+- all agreed pages are present,
+- navigation and enquiry form work,
+- supplied factual corrections are incorporated,
+- no critical broken internal links remain,
+- the staging build matches the approved scope.
+
+## Ownership and trust
+The customer keeps ownership/control of their domain, customer accounts and final website files.
+Darwin does not require passwords by ordinary email and does not hold a domain hostage.
+Any recurring hosting, maintenance or third-party fee must be disclosed separately before purchase.
+"""
+
+
+def _write_project_files(
+    project_root: Path,
+    quote: str,
+    spec: WebsiteBuildSpec,
+    ux: UXReview,
+    qa: str,
+) -> None:
+    project_root.mkdir(parents=True, exist_ok=True)
+    (project_root / "quote.md").write_text(quote, encoding="utf-8")
+    (project_root / "build-spec.json").write_text(
+        spec.model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+    (project_root / "ux-review.json").write_text(
+        ux.model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+    (project_root / "qa-report.txt").write_text(qa, encoding="utf-8")
+    (project_root / "CUSTOMER_HANDOFF.md").write_text(
+        """# Customer handoff checklist
+
+Before public launch:
+
+- [ ] Customer has reviewed the staging site.
+- [ ] Customer has confirmed factual product/pricing/legal copy.
+- [ ] Customer has confirmed rights to all photography, logos and supplied assets.
+- [ ] Customer has supplied privacy/terms/cookie requirements where applicable.
+- [ ] All requested revision rounds are complete.
+- [ ] Enquiry routing has been tested with the customer's real destination.
+- [ ] Domain/hosting access uses a secure owner-controlled method.
+- [ ] Final payment is verified for a real paid job.
+- [ ] Customer explicitly approves launch.
+- [ ] Backup/rollback path is documented before replacing an existing live site.
+
+Darwin must never treat a demo acceptance or an unverified payment promise as revenue.
+""",
+        encoding="utf-8",
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Run Darwin's post-sale website studio and create a functional staging site."
+    )
+    parser.add_argument("--business-name", required=True)
+    parser.add_argument("--website", required=True)
+    parser.add_argument("--customer-email", default="demo.customer@example.com")
+    parser.add_argument("--price", type=float, default=1500.0)
+    parser.add_argument("--currency", default="GBP")
+    parser.add_argument(
+        "--demo",
+        action="store_true",
+        help="Pretend the customer accepted the quote. No payment/revenue is recorded.",
+    )
+    parser.add_argument(
+        "--accept-quote",
+        action="store_true",
+        help="Record quote acceptance for a non-demo project. This is not payment verification.",
+    )
+    parser.add_argument(
+        "--serve",
+        action="store_true",
+        help="Serve the completed staging site locally.",
+    )
+    parser.add_argument(
+        "--no-serve",
+        action="store_true",
+        help="In demo mode, build without starting the local preview server.",
+    )
+    parser.add_argument("--port", type=int, default=8788)
+    args = parser.parse_args()
+
+    load_dotenv()
+    if not os.getenv("OPENAI_API_KEY"):
+        raise SystemExit("OPENAI_API_KEY is missing from .env")
+
+    price = max(100.0, min(float(args.price), 100000.0))
+    currency = args.currency.strip().upper()[:8] or "GBP"
+    mode = "DEMO" if args.demo else "CUSTOMER"
+    accepted = args.demo or args.accept_quote
+
+    conn = connect()
+    init_db(conn)
+
+    quote = _quote_text(args.business_name, args.website, price, currency)
+    cur = conn.execute(
+        """
+        INSERT INTO website_projects(
+            business_name, source_website, customer_email, mode, status,
+            quoted_price, currency, deposit_percent, quote_text, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, 'QUOTED', ?, ?, 50, ?, ?, ?)
+        """,
+        (
+            args.business_name,
+            args.website,
+            args.customer_email,
+            mode,
+            price,
+            currency,
+            quote,
+            now_iso(),
+            now_iso(),
+        ),
+    )
+    project_id = int(cur.lastrowid)
+    conn.commit()
+
+    _event(
+        conn,
+        project_id,
+        "Mercury",
+        "QUOTE_CREATED",
+        f"Fixed-scope {currency} {price:,.0f} website rebuild quotation created.",
+    )
+    _set_agent(conn, "Mercury", "READY", f"Website quote #{project_id} prepared")
+
+    slug = slugify(args.business_name)
+    project_root = Path("builds") / f"{slug}-{project_id}"
+    site_dir = project_root / "site"
+
+    print(f"\n=== DARWIN WEBSITE STUDIO — PROJECT #{project_id} ===")
+    print(f"Customer: {args.business_name}")
+    print(f"Source: {args.website}")
+    print(f"Quote: {currency} {price:,.0f}")
+    print(f"Mode: {mode}")
+
+    if not accepted:
+        project_root.mkdir(parents=True, exist_ok=True)
+        (project_root / "quote.md").write_text(quote, encoding="utf-8")
+        _update(conn, project_id, build_dir=str(project_root), status="AWAITING_ACCEPTANCE")
+        print(f"\nQuote prepared at: {project_root / 'quote.md'}")
+        print("No build started because the quotation has not been accepted.")
+        conn.close()
+        return
+
+    if args.demo:
+        _update(conn, project_id, status="DEMO_ACCEPTED")
+        _event(
+            conn,
+            project_id,
+            "Customer",
+            "DEMO_QUOTE_ACCEPTED",
+            "Fake customer accepted the quotation. No real payment or revenue was recorded.",
+        )
+        print("Demo customer: quotation accepted. Revenue recorded: $0 (simulation).")
+    else:
+        _update(conn, project_id, status="QUOTE_ACCEPTED_UNPAID")
+        _event(
+            conn,
+            project_id,
+            "Customer",
+            "QUOTE_ACCEPTED",
+            "Customer quote acceptance recorded. Payment remains unverified.",
+        )
+        print("Quote acceptance recorded. Payment remains unverified and is not counted as revenue.")
+
+    try:
+        _set_agent(conn, "Forge", "WORKING", f"Architecting premium website for {args.business_name}")
+        _event(
+            conn,
+            project_id,
+            "Forge",
+            "BUILD_SPEC_STARTED",
+            "Forge is researching the first-party website and preparing a factual premium build specification.",
+        )
+        spec = Runner.run_sync(
+            build_website_forge(),
+            f"""
+Create a premium website rebuild specification.
+
+Customer: {args.business_name}
+Current website: {args.website}
+Project type: six-page lead-generation website rebuild
+Primary conversion: request pricing / project enquiry
+
+Treat the supplied website as the primary factual source. Keep important product choices,
+prices, materials, lead times, dimensions, address and FAQs only when supported.
+Do not invent testimonials, results, certifications, health claims, phone numbers or emails.
+The visual renderer will create Home, Saunas, Ice Baths, About, FAQ and Get Pricing pages.
+""",
+        ).final_output
+        if not isinstance(spec, WebsiteBuildSpec):
+            raise RuntimeError("Forge returned an unexpected website build specification.")
+
+        _event(
+            conn,
+            project_id,
+            "Forge",
+            "BUILD_SPEC_COMPLETE",
+            f"Forge produced a structured site specification with {len(spec.saunas)} sauna cards, "
+            f"{len(spec.ice_baths)} ice-bath cards and {len(spec.faqs)} FAQs.",
+        )
+        _set_agent(conn, "Forge", "READY", "Website architecture and factual copy drafted")
+
+        _set_agent(conn, "Nova", "WORKING", "Reviewing customer UX and conversion flow")
+        ux = Runner.run_sync(
+            build_website_nova(),
+            f"""
+Review this client website specification before build.
+
+Customer: {args.business_name}
+Quoted scope: Home, Saunas, Ice Baths, About, FAQ, Get Pricing.
+Primary conversion: a transparent quote request, not an online purchase.
+
+SPEC:
+{spec.model_dump_json(indent=2)}
+
+Return a strict professional review. The goal is a premium agency-quality staging site that
+does not look generic, deceptive or over-automated.
+""",
+        ).final_output
+        if not isinstance(ux, UXReview):
+            raise RuntimeError("Nova returned an unexpected UX review.")
+
+        _event(
+            conn,
+            project_id,
+            "Nova",
+            "UX_REVIEW",
+            f"UX score {ux.score}/100. Approved: {ux.approved}. "
+            + ("; ".join(ux.required_changes[:5]) if ux.required_changes else "No critical changes."),
+        )
+
+        if not ux.approved and ux.required_changes:
+            _set_agent(conn, "Forge", "WORKING", "Applying Nova's required website revisions")
+            spec = Runner.run_sync(
+                build_website_forge(),
+                f"""
+Revise this website build specification using Nova's review. Re-check public facts using the
+first-party website where needed. Return a complete replacement WebsiteBuildSpec.
+
+Customer: {args.business_name}
+Website: {args.website}
+
+CURRENT SPEC:
+{spec.model_dump_json(indent=2)}
+
+NOVA REQUIRED CHANGES:
+{json.dumps(ux.required_changes, ensure_ascii=False, indent=2)}
+
+Do not fix criticism by inventing claims or customer facts.
+""",
+            ).final_output
+            if not isinstance(spec, WebsiteBuildSpec):
+                raise RuntimeError("Forge returned an unexpected revised website specification.")
+            _event(
+                conn,
+                project_id,
+                "Forge",
+                "UX_REVISIONS_APPLIED",
+                "Forge applied Nova's required changes to the build specification.",
+            )
+
+        _set_agent(conn, "Nova", "READY", f"Website UX reviewed: {ux.score}/100")
+
+        _set_agent(conn, "Sentinel", "WORKING", "QA checking website scope, claims and customer trust")
+        qa = str(
+            Runner.run_sync(
+                build_sentinel(),
+                f"""
+QA this accepted website staging project.
+
+CUSTOMER: {args.business_name}
+SOURCE WEBSITE: {args.website}
+
+QUOTE:
+{quote}
+
+BUILD SPEC:
+{spec.model_dump_json(indent=2)}
+
+NOVA REVIEW:
+{ux.model_dump_json(indent=2)}
+
+Return exactly:
+STATUS: PASS
+or
+STATUS: FLAG
+
+Then:
+REASONS:
+- concise bullets
+
+REQUIRED_CHANGES:
+- concise bullets, or "None"
+
+PASS only when:
+- the build stays inside the quoted six-page scope,
+- no invented testimonials/customers/awards/performance/revenue claims appear,
+- health claims are conservative rather than strengthened,
+- unverified facts are clearly withheld,
+- the quote is transparent about payment, revisions, exclusions and customer ownership,
+- launch requires customer approval,
+- credentials are not requested insecurely,
+- a demo is not represented as real payment or revenue.
+""",
+            ).final_output
+        ).strip()
+
+        if not _qa_passed(qa):
+            _update(conn, project_id, status="QA_FLAGGED", qa_report=qa)
+            _event(conn, project_id, "Sentinel", "QA_FLAGGED", qa)
+            _set_agent(conn, "Sentinel", "READY", "Website project blocked by QA")
+            print("\nSentinel blocked the build. See Mission Control / project QA report.")
+            conn.close()
+            return
+
+        _event(conn, project_id, "Sentinel", "QA_PASS", qa)
+        _set_agent(conn, "Sentinel", "READY", "Website project passed claims/scope QA")
+
+        _set_agent(conn, "Midas", "WORKING", "Rendering reusable premium website system")
+        render_site(spec, site_dir)
+        errors = validate_site(site_dir)
+        if errors:
+            raise RuntimeError("Static website validation failed: " + " | ".join(errors))
+
+        _write_project_files(project_root, quote, spec, ux, qa)
+        preview_url = f"http://127.0.0.1:{max(1024, min(args.port, 65535))}"
+        _update(
+            conn,
+            project_id,
+            status="STAGING_READY",
+            quote_text=quote,
+            ux_review=ux.model_dump_json(indent=2),
+            qa_report=qa,
+            build_dir=str(project_root),
+            preview_url=preview_url,
+        )
+        _event(
+            conn,
+            project_id,
+            "Midas",
+            "STAGING_BUILT",
+            f"Functional six-page staging site rendered to {site_dir}. "
+            "Internal-link, form-wiring and staging-noindex checks passed.",
+        )
+        _set_agent(conn, "Midas", "READY", "Premium staging website rendered and validated")
+
+        _set_agent(conn, "Ledger", "READY", "Demo project built; no real payment counted")
+        print("\nBuild validation: PASS")
+        print(f"Project files: {project_root}")
+        print(f"Staging site: {site_dir}")
+        print("Pages: Home / Saunas / Ice Baths / About / FAQ / Get Pricing")
+        print("Quote form backend: enabled in local staging server")
+        print("Public launch: disabled until customer approval and production credentials exist")
+
+        should_serve = args.serve or (args.demo and not args.no_serve)
+        conn.close()
+
+        if should_serve:
+            serve_site(site_dir, project_id, max(1024, min(args.port, 65535)))
+        else:
+            print(
+                f"\nPreview later with:\n"
+                f'python -m backend.site_server --site-dir "{site_dir}" '
+                f"--project-id {project_id} --port {args.port}"
+            )
+
+    except Exception as exc:
+        try:
+            _update(conn, project_id, status="ERROR", error_text=str(exc)[:4000])
+            _event(conn, project_id, "System", "ERROR", str(exc)[:4000])
+            _set_agent(conn, "Forge", "READY", "Website project encountered an error")
+        finally:
+            conn.close()
+        raise
+
+
+if __name__ == "__main__":
+    main()
