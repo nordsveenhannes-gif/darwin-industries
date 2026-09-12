@@ -5,9 +5,11 @@ from datetime import datetime, timedelta
 
 from dotenv import load_dotenv
 
+from backend.emailer import daily_send_cap, email_sending_enabled, send_ready_outreach
 from backend.pipeline import (
     audit_best_prospect,
     draft_outreach_for_best,
+    find_public_contact_for_best,
     score_researched_prospects,
 )
 from backend.research import research_batch
@@ -48,7 +50,7 @@ def main() -> None:
     )
     parser.add_argument("--hours", type=float, default=6.0)
     parser.add_argument("--cycle-minutes", type=int, default=60)
-    parser.add_argument("--max-model-calls", type=int, default=36)
+    parser.add_argument("--max-model-calls", type=int, default=42)
     parser.add_argument("--prospects-per-cycle", type=int, default=4)
     args = parser.parse_args()
 
@@ -74,18 +76,24 @@ def main() -> None:
     calls_used = 0
     index = 0
     budget_idle_announced = False
+    sending = email_sending_enabled()
 
     print("\n=== DARWIN WORKDAY STARTED ===")
     print(f"Target duration: {hours:g} hour(s)")
     print(f"Cycle interval: {cycle_minutes} minute(s)")
     print(f"Model-call guardrail: {max_calls}")
-    print("External email sending: DISABLED")
+    print(
+        "Controlled email sending: "
+        + (f"ENABLED (daily cap {daily_send_cap()})" if sending else "DISABLED")
+    )
     print("Cash spending: DISABLED")
     print("Press Ctrl+C to stop safely.\n")
 
     try:
         while datetime.now() < deadline:
-            if calls_used + 6 > max_calls:
+            # Worst-case model units per cycle:
+            # research 1 + scoring 1 + audit/QA 2 + draft/QA 2 + contact verify 1 = 7.
+            if calls_used + 7 > max_calls:
                 remaining = max(0, int((deadline - datetime.now()).total_seconds() / 60))
                 if not budget_idle_announced:
                     print(
@@ -100,7 +108,10 @@ def main() -> None:
                             f"Model-call guardrail reached at {calls_used}/{max_calls}.",
                         )
                     budget_idle_announced = True
-                sleep_seconds = min(300, max(1, int((deadline - datetime.now()).total_seconds())))
+                sleep_seconds = min(
+                    300,
+                    max(1, int((deadline - datetime.now()).total_seconds())),
+                )
                 time.sleep(sleep_seconds)
                 continue
 
@@ -138,7 +149,29 @@ def main() -> None:
                 prospect_id, used = draft_outreach_for_best(conn, run_id=run_id)
                 calls_used += used
                 if prospect_id is not None:
-                    print(f"Mercury/Sentinel: prospect #{prospect_id} outreach draft processed.")
+                    print(
+                        f"Mercury/Sentinel: prospect #{prospect_id} "
+                        "outreach draft processed."
+                    )
+
+                prospect_id, used = find_public_contact_for_best(conn, run_id=run_id)
+                calls_used += used
+                if prospect_id is not None:
+                    print(
+                        f"Oracle: prospect #{prospect_id} public role contact checked."
+                    )
+
+                if sending:
+                    sent, skipped = send_ready_outreach(
+                        conn,
+                        run_id=run_id,
+                        limit=1,
+                    )
+                    if sent or skipped:
+                        print(
+                            f"Resend: {sent} controlled outreach sent; "
+                            f"{skipped} skipped by guardrails."
+                        )
 
                 update_work_session(
                     conn,
