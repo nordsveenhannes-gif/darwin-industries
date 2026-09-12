@@ -402,51 +402,55 @@ def _dexscreener_meme_candidates() -> list[dict]:
 
 def _meme_market_bundle(conn):
     """
-    Prefer Moonshot's documented public API. If its hostname cannot be resolved or reached,
-    automatically fall back to DEX Screener's public Solana market API.
+    Use a supported public Solana market-data feed by default.
+
+    Moonshot's old public Data API is still present in legacy documentation, but its
+    api.moonshot.cc hostname is not currently reliable. Darwin therefore does NOT depend
+    on that endpoint. Set DARWIN_USE_LEGACY_MOONSHOT_API=true only to probe it explicitly.
+
+    This market feed is for discovery/analysis. Future execution from a Moonshot
+    self-custodial wallet should use the supported on-chain/Jupiter route, not app scraping.
     """
     bundle = []
     prices = {}
-    source = "moonshot"
+    source = "dexscreener"
 
-    try:
-        trending = _http_json(MOONSHOT_TRENDING)
-        tokens = trending if isinstance(trending, list) else trending.get("data", [])
+    use_legacy = os.getenv("DARWIN_USE_LEGACY_MOONSHOT_API", "false").strip().lower() == "true"
+    if use_legacy:
+        try:
+            trending = _http_json(MOONSHOT_TRENDING)
+            tokens = trending if isinstance(trending, list) else trending.get("data", [])
 
-        for token in list(tokens)[:6]:
-            if not isinstance(token, dict):
-                continue
-            symbol, token_id, price = _token_identity(token)
-            if not symbol:
-                continue
-            details = {"token": token, "market_source": "moonshot"}
-            if token_id:
-                try:
-                    details["latest_trades"] = _http_json(
-                        MOONSHOT_TRADES.format(token_id=token_id)
-                    )
-                except Exception as exc:
-                    details["trades_error"] = str(exc)
-            _snapshot(conn, "MEME", symbol, "moonshot", price, details)
-            if price:
-                prices[symbol] = price
-            details["local_price_history"] = _history(conn, "MEME", symbol, 30)
-            bundle.append(details)
+            for token in list(tokens)[:6]:
+                if not isinstance(token, dict):
+                    continue
+                symbol, token_id, price = _token_identity(token)
+                if not symbol:
+                    continue
+                details = {"token": token, "market_source": "moonshot_legacy"}
+                if token_id:
+                    try:
+                        details["latest_trades"] = _http_json(
+                            MOONSHOT_TRADES.format(token_id=token_id)
+                        )
+                    except Exception as exc:
+                        details["trades_error"] = str(exc)
+                _snapshot(conn, "MEME", symbol, "moonshot_legacy", price, details)
+                if price:
+                    prices[symbol] = price
+                details["local_price_history"] = _history(conn, "MEME", symbol, 30)
+                bundle.append(details)
 
-        if bundle:
-            return bundle, prices, source
-    except Exception as exc:
-        source = "dexscreener_fallback"
-        print(
-            "Moonshot market API unavailable; switching to DEX Screener Solana fallback:",
-            exc,
-        )
+            if bundle:
+                return bundle, prices, "moonshot_legacy"
+        except Exception as exc:
+            print("Legacy Moonshot Data API probe failed; using DEX Screener:", exc)
 
     for candidate in _dexscreener_meme_candidates():
         symbol = candidate["symbol"]
         price = candidate["price"]
         details = {
-            "market_source": "dexscreener_fallback",
+            "market_source": "dexscreener",
             "token_address": candidate["token_id"],
             "pair": candidate["payload"],
             "liquidity_usd": candidate["liquidity_usd"],
@@ -460,7 +464,6 @@ def _meme_market_bundle(conn):
 
     return bundle, prices, source
 
-
 def _moonshot_cycle(conn, model_budget: list[int], max_model_calls: int) -> None:
     _set_agent(conn, "Raptor", "WORKING", "Scanning live Solana meme market data for paper setups")
     try:
@@ -470,7 +473,7 @@ def _moonshot_cycle(conn, model_budget: list[int], max_model_calls: int) -> None
             print("Raptor paper exit:", line)
 
         if not bundle or model_budget[0] + 2 > max_model_calls:
-            _set_agent(conn, "Raptor", "READY", "Moonshot scan complete; no setup review")
+            _set_agent(conn, "Raptor", "READY", "Solana scan complete; no setup review")
             return
 
         print(f"Raptor market feed: {market_source}; {len(bundle)} candidate(s) loaded.")
@@ -533,8 +536,8 @@ def _moonshot_cycle(conn, model_budget: list[int], max_model_calls: int) -> None
             + ("paper trade opened" if opened else "no paper trade opened"),
         )
     except Exception as exc:
-        _set_agent(conn, "Raptor", "READY", f"Moonshot scan error: {str(exc)[:140]}")
-        print("Raptor scan error:", exc)
+        _set_agent(conn, "Raptor", "READY", f"Solana scan error: {str(exc)[:140]}")
+        print("Raptor Solana scan error:", exc)
 
 
 def _alpaca_bars(symbols: list[str]):
@@ -697,7 +700,7 @@ def main() -> None:
 
     conn = connect()
     init_db(conn)
-    _set_agent(conn, "Raptor", "ON_SHIFT", "Paper-trading Moonshot momentum desk")
+    _set_agent(conn, "Raptor", "ON_SHIFT", "Paper-trading Solana meme momentum desk")
     _set_agent(conn, "Apex", "ON_SHIFT", "Paper-trading intraday equities desk")
     _set_agent(conn, "Circuit", "ON_SHIFT", "Independent paper-trading risk control")
 
@@ -706,7 +709,7 @@ def main() -> None:
     cycle = 0
 
     print("\n=== DARWIN TRADING DESK — PAPER MODE ===")
-    print("Raptor: live Solana meme momentum scanner (Moonshot preferred, DEX fallback)")
+    print("Raptor: live Solana meme momentum scanner (DEX Screener market data)")
     print("Apex: intraday equities scanner (Alpaca paper data + owner watchlist)")
     print("Circuit: independent risk gate")
     print("REAL MONEY EXECUTION: DISABLED")
