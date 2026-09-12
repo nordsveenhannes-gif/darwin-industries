@@ -504,17 +504,20 @@ turned into fabricated staging copy.
 
         _set_agent(conn, "Nova", "READY", f"Website staging UX reviewed: {ux.score}/100")
 
-        _set_agent(conn, "Sentinel", "WORKING", "QA checking website scope, claims and customer trust")
+        _set_agent(conn, "Sentinel", "WORKING", "QA checking private staging safety and customer trust")
 
         def run_project_qa(current_spec: WebsiteBuildSpec, current_ux: UXReview) -> str:
             return str(
                 Runner.run_sync(
                     build_sentinel(),
                     f"""
-QA this accepted website staging project.
+QA this PRIVATE, NOINDEX WEBSITE STAGING project.
 
 CUSTOMER: {args.business_name}
 SOURCE WEBSITE: {args.website}
+
+CLIENT BRIEF:
+{json.dumps(client_brief, ensure_ascii=False, indent=2)}
 
 QUOTE:
 {quote}
@@ -522,7 +525,7 @@ QUOTE:
 BUILD SPEC:
 {current_spec.model_dump_json(indent=2)}
 
-NOVA REVIEW:
+NOVA STAGING REVIEW:
 {current_ux.model_dump_json(indent=2)}
 
 Return exactly:
@@ -537,15 +540,29 @@ REASONS:
 REQUIRED_CHANGES:
 - concise bullets, or "None"
 
-PASS only when:
-- the build stays inside the quoted six-page scope (Home, two primary collection/service pages, About, FAQ, Get Pricing),
-- no invented testimonials/customers/awards/performance/revenue claims appear,
-- health claims are conservative rather than strengthened,
-- unverified facts are clearly withheld,
-- the quote is transparent about payment, revisions, exclusions and customer ownership,
-- launch requires customer approval,
-- credentials are not requested insecurely,
-- a demo is not represented as real payment or revenue.
+This is STAGING QA, not LAUNCH QA.
+
+PASS the staging build when:
+- it stays inside the accepted scope,
+- unsupported or disputed claims are omitted rather than invented,
+- it contains no fake testimonials, customers, awards, rankings, guarantees or fabricated results,
+- health/performance claims are not strengthened beyond verified/client-supplied evidence,
+- the customer brief is reflected in goals, audience, CTA, design direction and functionality,
+- the site is safe to show privately for customer review,
+- launch remains explicitly gated behind final customer approval.
+
+Do NOT FLAG private staging merely because these launch dependencies are unfinished:
+- final privacy/cookie/terms/warranty wording,
+- analytics or marketing-cookie configuration,
+- production hosting/domain credentials,
+- production form-routing/CRM credentials,
+- verified final payment,
+- final asset licensing confirmation,
+- legal review,
+- final warranty/returns/shipping policies that can be omitted from staging.
+
+If a commercial fact conflicts or is uncertain, staging may omit it and record it as pending client confirmation.
+Nova approved=false by itself is not a reason to FLAG; judge the actual revised spec.
 """,
                 ).final_output
             ).strip()
@@ -558,27 +575,32 @@ PASS only when:
                 project_id,
                 "Sentinel",
                 "QA_REPAIR_REQUESTED",
-                "Sentinel flagged the first draft. Darwin is attempting one bounded self-repair before blocking the project.\n" + qa,
+                "Sentinel found a staging issue. Darwin is attempting one bounded internal repair before asking the client.\n" + qa,
             )
-            _set_agent(conn, "Forge", "WORKING", "Repairing website specification after Sentinel QA")
+            _set_agent(conn, "Forge", "WORKING", "Repairing staging specification after Sentinel QA")
             try:
                 repaired = Runner.run_sync(
                     build_website_forge(),
                     f"""
-Repair this website specification using Sentinel's QA report.
+Repair this PRIVATE STAGING website specification using Sentinel's QA report.
 
 Customer: {args.business_name}
 Source website: {args.website}
 
+CLIENT BRIEF:
+{json.dumps(client_brief, ensure_ascii=False, indent=2)}
+
 CURRENT SPEC:
 {spec.model_dump_json(indent=2)}
 
-SENTINEL QA:
+SENTINEL STAGING QA:
 {qa}
 
 Return a complete replacement WebsiteBuildSpec.
-Correct only issues identified by QA. Re-check first-party facts where needed.
-Never invent a claim to make QA pass.
+Correct only actual staging issues. Re-check first-party facts where needed.
+If a fact is disputed or cannot be verified, OMIT it from staging or put it in unverified_claims.
+Do not invent legal text, commercial terms, testimonials or claims to make QA pass.
+Launch-only dependencies may remain pending.
 """,
                 ).final_output
                 if isinstance(repaired, WebsiteBuildSpec):
@@ -588,7 +610,16 @@ Never invent a claim to make QA pass.
                         project_id,
                         "Forge",
                         "QA_REPAIR_COMPLETE",
-                        "Forge applied Sentinel's required changes and returned the project for a second QA pass.",
+                        "Forge applied Sentinel's staging corrections.",
+                    )
+                    _set_agent(conn, "Nova", "WORKING", "Reviewing repaired staging specification")
+                    ux = run_ux_review(spec)
+                    _event(
+                        conn,
+                        project_id,
+                        "Nova",
+                        "QA_REPAIR_UX_REVIEW",
+                        f"Post-repair UX score {ux.score}/100. Approved: {ux.approved}.",
                     )
             except Exception as repair_exc:
                 _event(
@@ -596,21 +627,139 @@ Never invent a claim to make QA pass.
                     project_id,
                     "Forge",
                     "QA_REPAIR_ERROR",
-                    f"Automatic QA repair failed: {str(repair_exc)[:1000]}",
+                    f"Automatic staging repair failed: {str(repair_exc)[:1000]}",
                 )
 
+            qa = run_project_qa(spec, ux)
+
+        # If internal repair is not enough, distinguish missing client decisions from launch-only dependencies.
+        if not _qa_passed(qa):
+            _set_agent(conn, "Mercury", "WORKING", "Separating client questions from launch-only dependencies")
+            plan = Runner.run_sync(
+                build_website_clarifier(),
+                f"""
+Plan the next step for this website staging project.
+
+Customer: {args.business_name}
+
+CLIENT BRIEF ALREADY RECEIVED:
+{json.dumps(client_brief, ensure_ascii=False, indent=2)}
+
+CURRENT SPEC:
+{spec.model_dump_json(indent=2)}
+
+NOVA REVIEW:
+{ux.model_dump_json(indent=2)}
+
+SENTINEL QA:
+{qa}
+
+Ask the client only for information that genuinely blocks a professional PRIVATE STAGING build.
+Do not ask again for something already clearly answered in the client brief.
+Do not treat final launch compliance, domain credentials, final legal copy or payment as staging blockers.
+""",
+            ).final_output
+            if not isinstance(plan, ClarificationPlan):
+                raise RuntimeError("Clarification planner returned an unexpected output.")
+
+            staging_questions = [q for q in plan.questions if q.required_for == "STAGING"]
+
+            if staging_questions:
+                dynamic_questions = []
+                for index, q in enumerate(staging_questions, 1):
+                    dynamic_questions.append(
+                        {
+                            "key": f"followup_{index}_{q.key}",
+                            "question": q.question,
+                            "why": q.why_needed,
+                            "required_for": "STAGING",
+                            "placeholder": "Please answer with the decision or factual correction Darwin should use for this staging build.",
+                        }
+                    )
+
+                _update(conn, project_id, status="CLIENT_CLARIFICATION_NEEDED")
+                _event(
+                    conn,
+                    project_id,
+                    "Mercury",
+                    "CLIENT_CLARIFICATION_REQUESTED",
+                    "Internal research/QA could not safely resolve a staging decision, so Darwin asked the client targeted follow-up questions.",
+                )
+                _set_agent(conn, "Mercury", "WAITING_CLIENT", "Waiting for targeted website clarification")
+                followup = collect_client_answers(
+                    project_id,
+                    args.business_name,
+                    questions=dynamic_questions,
+                    port=8790,
+                    heading="We found a few things we should not guess.",
+                    open_browser=args.demo,
+                )
+                client_brief.update(followup)
+                _event(
+                    conn,
+                    project_id,
+                    "Customer",
+                    "CLIENT_CLARIFICATION_COMPLETE",
+                    f"Customer answered {len(followup)} targeted staging clarification question(s).",
+                )
+                _set_agent(conn, "Mercury", "READY", "Targeted client clarification received")
+            else:
+                followup = {}
+
+            _set_agent(conn, "Forge", "WORKING", "Finalizing staging after clarification review")
+            spec = Runner.run_sync(
+                build_website_forge(),
+                f"""
+Produce the FINAL PRIVATE STAGING specification after QA clarification planning.
+
+Customer: {args.business_name}
+Source website: {args.website}
+
+COMPLETE CLIENT BRIEF:
+{json.dumps(client_brief, ensure_ascii=False, indent=2)}
+
+CURRENT SPEC:
+{spec.model_dump_json(indent=2)}
+
+SENTINEL QA:
+{qa}
+
+SAFE OMISSIONS / DEFERRALS:
+{json.dumps(plan.safe_omissions, ensure_ascii=False, indent=2)}
+
+Rules:
+- Incorporate any new client answers.
+- Remove unsupported/disputed facts that can safely be omitted.
+- Do not invent missing launch-only policies or commercial terms.
+- Keep launch-only dependencies in customer_assets_needed/unverified_claims.
+- Return a complete WebsiteBuildSpec for a private noindex customer preview.
+""",
+            ).final_output
+            if not isinstance(spec, WebsiteBuildSpec):
+                raise RuntimeError("Forge returned an unexpected final staging specification.")
+
+            _set_agent(conn, "Nova", "WORKING", "Final staging UX review")
+            ux = run_ux_review(spec)
+            _event(
+                conn,
+                project_id,
+                "Nova",
+                "FINAL_STAGING_UX_REVIEW",
+                f"Final staging UX score {ux.score}/100. Approved: {ux.approved}.",
+            )
             qa = run_project_qa(spec, ux)
 
         if not _qa_passed(qa):
             _update(conn, project_id, status="QA_FLAGGED", qa_report=qa)
             _event(conn, project_id, "Sentinel", "QA_FLAGGED", qa)
-            _set_agent(conn, "Sentinel", "READY", "Website project blocked after two QA passes")
-            print("\nSentinel blocked the build after the bounded self-repair attempt.")
+            _set_agent(conn, "Sentinel", "READY", "Website staging blocked after repair and client-clarification path")
+            print("\nSentinel still found a genuine staging safety issue after repair/clarification.")
             conn.close()
             return
 
-        _event(conn, project_id, "Sentinel", "QA_PASS", qa)
-        _set_agent(conn, "Sentinel", "READY", "Website project passed claims/scope QA")
+        _event(conn, project_id, "Sentinel", "STAGING_QA_PASS", qa)
+        _set_agent(conn, "Sentinel", "READY", "Private staging passed claims/scope QA")
+        _update(conn, project_id, status="STAGING_QA_PASSED")
 
         _set_agent(conn, "Midas", "WORKING", "Rendering reusable premium website system")
         image_files = []
