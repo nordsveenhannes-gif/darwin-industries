@@ -12,11 +12,13 @@ def main() -> None:
         SELECT * FROM prospects
         ORDER BY
             CASE status
-                WHEN 'DRAFT_READY' THEN 0
-                WHEN 'AUDITED' THEN 1
-                WHEN 'SCORED' THEN 2
-                WHEN 'RESEARCHED' THEN 3
-                ELSE 4
+                WHEN 'CONTACT_READY' THEN 0
+                WHEN 'DRAFT_READY' THEN 1
+                WHEN 'OUTREACH_SENT' THEN 2
+                WHEN 'AUDITED' THEN 3
+                WHEN 'SCORED' THEN 4
+                WHEN 'RESEARCHED' THEN 5
+                ELSE 6
             END,
             COALESCE(sales_score, confidence) DESC,
             id DESC
@@ -60,6 +62,13 @@ def main() -> None:
             print("  Draft email:")
             for line in p["outreach_body"].splitlines():
                 print(f"    {line}")
+        if p["contact_email"]:
+            print(
+                f"  Verified role email: {p['contact_email']} "
+                f"({p['contact_confidence'] or 0}% confidence)"
+            )
+        if p["contact_email_source"]:
+            print(f"  Contact source: {p['contact_email_source']}")
         print()
 
     print("No model calls were used to display this pipeline.")
