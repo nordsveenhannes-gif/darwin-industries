@@ -473,15 +473,32 @@ def _moonshot_cycle(conn, model_budget: list[int], max_model_calls: int) -> None
             _set_agent(conn, "Raptor", "READY", "Moonshot scan complete; no setup review")
             return
 
+        print(f"Raptor market feed: {market_source}; {len(bundle)} candidate(s) loaded.")
         idea = Runner.run_sync(
             build_raptor(),
-            "Choose at most one PAPER setup from these Moonshot market snapshots. "
+            "Choose at most one PAPER setup from these live Solana market snapshots. "
             "Repeated support must be evidenced by local_price_history; if it is not, WAIT.\n\n"
             + json.dumps(bundle, ensure_ascii=False)[:80000],
         ).final_output
         model_budget[0] += 1
         if not isinstance(idea, MemeTradeIdea):
             raise RuntimeError("Raptor returned an unexpected output.")
+
+        print(
+            f"Raptor decision: {idea.action} {idea.symbol} "
+            f"(confidence {idea.confidence})"
+        )
+
+        if idea.action.upper() != "BUY":
+            _record_signal(conn, "Raptor", "MEME", idea, "Circuit not called: no BUY proposal.")
+            _set_agent(
+                conn,
+                "Raptor",
+                "READY",
+                f"Meme paper decision ({market_source}): {idea.action} {idea.symbol}; no paper trade opened",
+            )
+            print("Circuit: skipped — no BUY proposal to risk-review.")
+            return
 
         decision, risk_text = _risk_review(
             conn,
@@ -602,6 +619,22 @@ def _stock_cycle(conn, model_budget: list[int], max_model_calls: int) -> None:
         if not isinstance(idea, StockTradeIdea):
             raise RuntimeError("Apex returned an unexpected output.")
 
+        print(
+            f"Apex decision: {idea.action} {idea.symbol} "
+            f"(confidence {idea.confidence})"
+        )
+
+        if idea.action.upper() != "BUY":
+            _record_signal(conn, "Apex", "STOCK", idea, "Circuit not called: no BUY proposal.")
+            _set_agent(
+                conn,
+                "Apex",
+                "READY",
+                f"Equity paper decision: {idea.action} {idea.symbol}; no paper trade opened",
+            )
+            print("Circuit: skipped — no BUY proposal to risk-review.")
+            return
+
         decision, risk_text = _risk_review(
             conn,
             "STOCK",
@@ -673,7 +706,7 @@ def main() -> None:
     cycle = 0
 
     print("\n=== DARWIN TRADING DESK — PAPER MODE ===")
-    print("Raptor: Moonshot public-data meme momentum scanner")
+    print("Raptor: live Solana meme momentum scanner (Moonshot preferred, DEX fallback)")
     print("Apex: intraday equities scanner (Alpaca paper data + owner watchlist)")
     print("Circuit: independent risk gate")
     print("REAL MONEY EXECUTION: DISABLED")
@@ -698,12 +731,16 @@ def main() -> None:
 
             if datetime.now() >= deadline:
                 break
-            time.sleep(
-                min(
-                    interval * 60,
-                    max(1, int((deadline - datetime.now()).total_seconds())),
-                )
+            sleep_seconds = min(
+                interval * 60,
+                max(1, int((deadline - datetime.now()).total_seconds())),
             )
+            next_scan = datetime.now() + timedelta(seconds=sleep_seconds)
+            print(
+                f"Next scan in about {sleep_seconds // 60} minute(s) "
+                f"at {next_scan.strftime('%H:%M:%S')}.\n"
+            )
+            time.sleep(sleep_seconds)
     except KeyboardInterrupt:
         print("\nTrading desk stopped by owner.")
     finally:
