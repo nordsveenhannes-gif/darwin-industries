@@ -32,16 +32,29 @@ def _list(items: list[str], class_name: str = "detail-list") -> str:
     return "".join(f'<li>{_e(x)}</li>' for x in items)
 
 
-def _product_cards(items) -> str:
+def _product_cards(items, images: list[str] | None = None, offset: int = 0) -> str:
     cards = []
-    for item in items:
+    images = images or []
+    for index, item in enumerate(items):
         details = _list(item.details[:5])
+        image_index = offset + index
+        if image_index < len(images):
+            image = _e(images[image_index])
+            visual = (
+                f'<div class="product-visual product-photo" '
+                f'style="background-image:linear-gradient(180deg,rgba(17,16,14,.05),rgba(17,16,14,.45)),url(&quot;{image}&quot;)" '
+                f'aria-label="{_e(item.name)} product image">'
+                f'<span>{_e(item.eyebrow or "Signature collection")}</span></div>'
+            )
+        else:
+            visual = (
+                f'<div class="product-visual" aria-hidden="true">'
+                f'<span>{_e(item.eyebrow or "Signature collection")}</span></div>'
+            )
         cards.append(
             f"""
             <article class="product-card reveal">
-              <div class="product-visual" aria-hidden="true">
-                <span>{_e(item.eyebrow or "Signature collection")}</span>
-              </div>
+              {visual}
               <div class="product-copy">
                 <p class="eyebrow">{_e(item.eyebrow)}</p>
                 <h3>{_e(item.name)}</h3>
@@ -140,13 +153,20 @@ def _layout(
 """
 
 
-def _home(spec: WebsiteBuildSpec) -> str:
+def _home(spec: WebsiteBuildSpec, images: list[str] | None = None) -> str:
     trust = "".join(
         f'<div class="trust-item"><span>{i:02d}</span><p>{_e(point)}</p></div>'
         for i, point in enumerate(spec.trust_points[:4], 1)
     )
     sauna_name = spec.saunas[0].name if spec.saunas else "Infrared saunas"
     ice_name = spec.ice_baths[0].name if spec.ice_baths else "Ice baths"
+    images = images or []
+    hero_style = ""
+    if images:
+        hero_style = (
+            ' style="background-image:linear-gradient(135deg,rgba(17,16,14,.10),rgba(17,16,14,.50)),'
+            f'url(&quot;{_e(images[0])}&quot;);background-size:cover;background-position:center"'
+        )
     return f"""
 <section class="hero">
   <div class="hero-copy reveal">
@@ -158,7 +178,7 @@ def _home(spec: WebsiteBuildSpec) -> str:
       <a class="button button-ghost" href="#collections">Explore collections</a>
     </div>
   </div>
-  <div class="hero-art reveal" aria-label="Abstract fire and ice visual">
+  <div class="hero-art reveal"{hero_style} aria-label="Fire and Ice visual">
     <div class="orb orb-fire"></div>
     <div class="orb orb-ice"></div>
     <div class="glass-card">
@@ -202,17 +222,20 @@ def _home(spec: WebsiteBuildSpec) -> str:
 """
 
 
-def _products_page(spec: WebsiteBuildSpec, kind: str) -> str:
+def _products_page(spec: WebsiteBuildSpec, kind: str, images: list[str] | None = None) -> str:
     if kind == "saunas":
         title = "Infrared saunas"
         intro = spec.sauna_intro
         items = spec.saunas
         tone = "fire"
+        image_offset = 1
     else:
         title = "Ice baths"
         intro = spec.ice_bath_intro
         items = spec.ice_baths
         tone = "ice"
+        image_offset = 4
+    images = images or []
     return f"""
 <section class="page-hero page-hero-{tone}">
   <p class="eyebrow">{_e(kind.replace("-", " ").title())}</p>
@@ -225,7 +248,7 @@ def _products_page(spec: WebsiteBuildSpec, kind: str) -> str:
     <p class="eyebrow">Collection</p>
     <h2>Choose the format that fits your space.</h2>
   </div>
-  <div class="product-grid">{_product_cards(items)}</div>
+  <div class="product-grid">{_product_cards(items, images, image_offset)}</div>
 </section>
 <section class="cta-band">
   <div><p class="eyebrow">Need help choosing?</p><h2>Tell us about your room, preferred finish and timeline.</h2></div>
@@ -348,7 +371,7 @@ h1,h2,h3,blockquote{font-family:Georgia,"Times New Roman",serif;font-weight:400;
 .section{padding:clamp(76px,10vw,150px) clamp(20px,7vw,110px)}.section-heading{max-width:980px;margin-bottom:56px}.collection-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}.collection{min-height:540px;padding:48px;border-radius:var(--radius);display:flex;flex-direction:column;justify-content:flex-end;color:#fff;overflow:hidden;position:relative}.collection:before{content:"";position:absolute;inset:0;opacity:.85}.collection>*{position:relative;z-index:1}.collection h3{font-size:clamp(42px,5vw,72px);max-width:600px;margin-bottom:18px}.collection p{max-width:600px}.collection-fire{background:radial-gradient(circle at 70% 5%,#bc6548,#542319 58%,#1b1310)}.collection-ice{background:radial-gradient(circle at 70% 5%,#7aabba,#294e5c 58%,#111a1e)}.collection .eyebrow{color:rgba(255,255,255,.68)}.text-link{font-size:13px;font-weight:750;margin-top:20px}
 .statement{padding:clamp(90px,13vw,190px) clamp(20px,10vw,160px);background:var(--dark);color:#fff}.statement .eyebrow{color:#a8a198}.statement blockquote{font-size:clamp(42px,6vw,86px);line-height:1.03;max-width:1200px;margin:0 0 42px}
 .page-hero{padding:clamp(90px,12vw,170px) clamp(20px,10vw,150px) 80px}.page-hero h1{max-width:1050px}.page-hero-fire{background:linear-gradient(145deg,#f4f0e8 45%,#dfc3ad)}.page-hero-ice{background:linear-gradient(145deg,#f4f0e8 45%,#c9dde1)}
-.product-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:24px}.product-card{background:#fff;border-radius:var(--radius);overflow:hidden;box-shadow:0 10px 30px rgba(17,16,14,.05)}.product-visual{height:280px;padding:28px;display:flex;align-items:flex-end;background:linear-gradient(135deg,#28241f,#9e5d43 48%,#628491);color:#fff}.product-visual span{font-size:10px;text-transform:uppercase;letter-spacing:.2em}.product-copy{padding:34px}.product-copy p{color:#5f5a52}.detail-list{padding-left:18px;color:#4f4a43}.detail-list li{margin:7px 0}.product-footer{border-top:1px solid var(--line);margin-top:28px;padding-top:20px;display:flex;justify-content:space-between;gap:20px;font-size:13px}
+.product-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:24px}.product-card{background:#fff;border-radius:var(--radius);overflow:hidden;box-shadow:0 10px 30px rgba(17,16,14,.05)}.product-visual{height:280px;padding:28px;display:flex;align-items:flex-end;background:linear-gradient(135deg,#28241f,#9e5d43 48%,#628491);color:#fff}.product-photo{background-size:cover;background-position:center}.product-visual span{font-size:10px;text-transform:uppercase;letter-spacing:.2em}.product-copy{padding:34px}.product-copy p{color:#5f5a52}.detail-list{padding-left:18px;color:#4f4a43}.detail-list li{margin:7px 0}.product-footer{border-top:1px solid var(--line);margin-top:28px;padding-top:20px;display:flex;justify-content:space-between;gap:20px;font-size:13px}
 .cta-band{margin:0 clamp(20px,4vw,60px) clamp(20px,4vw,60px);background:var(--dark);color:#fff;border-radius:32px;padding:clamp(42px,6vw,76px);display:flex;align-items:end;justify-content:space-between;gap:30px}.cta-band h2{max-width:900px;margin-bottom:0}.cta-band .eyebrow{color:#aaa49b}
 .two-col{display:grid;grid-template-columns:.9fr 1.1fr;gap:8vw}.prose{font-size:19px;color:#504b44}.feature-list{list-style:none;padding:0;margin-top:36px;border-top:1px solid var(--line)}.feature-list li{padding:16px 0;border-bottom:1px solid var(--line)}
 .faq-wrap{max-width:1050px;margin:auto}.faq-item{border-top:1px solid var(--line)}.faq-item:last-child{border-bottom:1px solid var(--line)}.faq-item summary{cursor:pointer;list-style:none;padding:26px 0;font-family:Georgia,serif;font-size:25px}.faq-item summary::-webkit-details-marker{display:none}.faq-item summary:after{content:"+";float:right;font-family:Inter,sans-serif}.faq-item[open] summary:after{content:"−"}.faq-item div{padding:0 0 26px;max-width:800px;color:#5d5850}
@@ -417,26 +440,27 @@ APP_JS = r"""
 """
 
 
-def render_site(spec: WebsiteBuildSpec, output_dir: Path) -> None:
+def render_site(spec: WebsiteBuildSpec, output_dir: Path, image_files: list[str] | None = None) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     assets = output_dir / "assets"
     assets.mkdir(exist_ok=True)
+    image_files = image_files or []
 
     pages = {
         "index.html": (
             "Premium wellness equipment",
             spec.hero_subheading,
-            _home(spec),
+            _home(spec, image_files),
         ),
         "saunas.html": (
             "Infrared saunas",
             spec.sauna_intro,
-            _products_page(spec, "saunas"),
+            _products_page(spec, "saunas", image_files),
         ),
         "ice-baths.html": (
             "Premium ice baths",
             spec.ice_bath_intro,
-            _products_page(spec, "ice-baths"),
+            _products_page(spec, "ice-baths", image_files),
         ),
         "about.html": (
             "About",
