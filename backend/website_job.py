@@ -88,7 +88,7 @@ A Darwin demo never counts the simulated acceptance above as revenue or payment.
 
 ## Included
 - Premium responsive redesign.
-- Six core pages: Home, two primary product/service pages, About, FAQ and Get Pricing.
+- Six core pages: Home, two primary product/service pages, About, FAQ and Get Pricing, plus operational privacy/404 support pages.
 - Existing verified business/product information reorganised for clarity.
 - Functional quotation/enquiry form.
 - Mobile navigation and responsive layouts.
@@ -110,15 +110,20 @@ A Darwin demo never counts the simulated acceptance above as revenue or payment.
 - Domain purchase or transfer fees.
 
 ## Delivery target
-7–10 business days after the real project has:
+Target staging delivery is 7–10 business days after the real project has:
 1. an accepted scope,
 2. verified deposit,
-3. confirmed rights to supplied/reused assets,
-4. required product/legal information.
+3. a completed client brief,
+4. the content/assets needed to make the agreed pages reviewable.
+
+The project clock pauses while Darwin is waiting for customer decisions, missing assets, factual corrections
+or revision feedback. Final legal/privacy/cookie/production details may be completed during staging, but
+they must be resolved before public launch.
 
 ## Revision and acceptance
-Two consolidated revision rounds are included. The customer reviews the staging URL before launch.
-Darwin will not replace the live website without explicit launch approval.
+Two consolidated revision rounds are included. Feedback should come through one agreed approver so
+conflicting stakeholder instructions do not silently expand the scope. The customer reviews the staging
+URL before launch. Darwin will not replace the live website without explicit launch approval.
 
 Acceptance means:
 - all agreed pages are present,
