@@ -218,6 +218,58 @@ def init_db(conn: sqlite3.Connection) -> None:
             FOREIGN KEY(signal_id) REFERENCES trade_signals(id)
         );
 
+        CREATE TABLE IF NOT EXISTS website_projects (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            business_name TEXT NOT NULL,
+            source_website TEXT NOT NULL,
+            customer_email TEXT,
+            mode TEXT NOT NULL DEFAULT 'DEMO',
+            status TEXT NOT NULL,
+            quoted_price REAL NOT NULL DEFAULT 0,
+            currency TEXT NOT NULL DEFAULT 'GBP',
+            deposit_percent INTEGER NOT NULL DEFAULT 50,
+            quote_text TEXT,
+            ux_review TEXT,
+            qa_report TEXT,
+            build_dir TEXT,
+            preview_url TEXT,
+            error_text TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS website_project_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL,
+            agent TEXT NOT NULL,
+            stage TEXT NOT NULL,
+            detail TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(project_id) REFERENCES website_projects(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS website_leads (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL,
+            interest TEXT NOT NULL,
+            message TEXT NOT NULL,
+            consent INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'NEW',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(project_id) REFERENCES website_projects(id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_website_projects_status
+            ON website_projects(status, id);
+
+        CREATE INDEX IF NOT EXISTS idx_website_project_events
+            ON website_project_events(project_id, id);
+
+        CREATE INDEX IF NOT EXISTS idx_website_leads_project
+            ON website_leads(project_id, id);
+
         CREATE INDEX IF NOT EXISTS idx_trade_signals_created
             ON trade_signals(created_at, asset_class);
 
