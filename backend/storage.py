@@ -62,6 +62,23 @@ def init_db(conn: sqlite3.Connection) -> None:
             detail TEXT NOT NULL,
             created_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS prospects (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id INTEGER,
+            created_at TEXT NOT NULL,
+            market TEXT NOT NULL,
+            category TEXT NOT NULL,
+            business_name TEXT NOT NULL,
+            website_url TEXT NOT NULL,
+            city TEXT NOT NULL,
+            observed_issue TEXT NOT NULL,
+            why_fit TEXT NOT NULL,
+            source_urls_json TEXT NOT NULL,
+            confidence INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'RESEARCHED',
+            UNIQUE(website_url)
+        );
         """
     )
 
@@ -261,3 +278,53 @@ def refresh_run_status(conn: sqlite3.Connection, run_id: int) -> str:
 
     set_run_status(conn, run_id, status)
     return status
+
+
+def save_prospect(
+    conn: sqlite3.Connection,
+    run_id: int | None,
+    market: str,
+    category: str,
+    business_name: str,
+    website_url: str,
+    city: str,
+    observed_issue: str,
+    why_fit: str,
+    source_urls_json: str,
+    confidence: int,
+) -> bool:
+    try:
+        conn.execute(
+            """
+            INSERT INTO prospects(
+                run_id, created_at, market, category, business_name,
+                website_url, city, observed_issue, why_fit,
+                source_urls_json, confidence, status
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'RESEARCHED')
+            """,
+            (
+                run_id,
+                now_iso(),
+                market,
+                category,
+                business_name,
+                website_url,
+                city,
+                observed_issue,
+                why_fit,
+                source_urls_json,
+                confidence,
+            ),
+        )
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        return False
+
+
+def latest_run_id(conn: sqlite3.Connection) -> int | None:
+    row = conn.execute(
+        "SELECT id FROM runs ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    return int(row["id"]) if row else None
