@@ -476,7 +476,7 @@ def _moonshot_cycle(conn, model_budget: list[int], max_model_calls: int) -> None
         idea = Runner.run_sync(
             build_raptor(),
             "Choose at most one PAPER setup from these Moonshot market snapshots. "
-            "Repeated support must be evidenced by local_price_history; if it is not, WAIT.\\n\\n"
+            "Repeated support must be evidenced by local_price_history; if it is not, WAIT.\n\n"
             + json.dumps(bundle, ensure_ascii=False)[:80000],
         ).final_output
         model_budget[0] += 1
