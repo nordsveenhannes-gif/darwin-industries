@@ -168,13 +168,24 @@ def _page(project_id: int, business_name: str, questions: list[dict], heading: s
         question = html.escape(q["question"])
         why = html.escape(q.get("why", ""))
         placeholder = html.escape(q.get("placeholder", ""), quote=True)
+        options = q.get("options") or []
+        if options:
+            option_html = '<option value="">Choose one</option>' + "".join(
+                f'<option value="{html.escape(str(opt), quote=True)}">{html.escape(str(opt))}</option>'
+                for opt in options
+            )
+            control = f'<select id="{key}" name="{key}" required>{option_html}</select>'
+        else:
+            control = (
+                f'<textarea id="{key}" name="{key}" rows="4" required '
+                f'placeholder="{placeholder}"></textarea>'
+            )
         fields.append(
             f"""
             <section class="question">
               <label for="{key}">{question}</label>
               <p>{why}</p>
-              <textarea id="{key}" name="{key}" rows="4" required
-                placeholder="{placeholder}"></textarea>
+              {control}
             </section>
             """
         )
@@ -192,8 +203,8 @@ main{{width:min(860px,calc(100% - 32px));margin:56px auto}}.eyebrow{{text-transf
 h1{{font:400 clamp(40px,7vw,72px)/.98 Georgia,serif;letter-spacing:-.04em;margin:10px 0 18px}}.intro{{font-size:19px;color:#514b43;max-width:720px}}
 .notice{{background:#171512;color:#fff;border-radius:18px;padding:18px 20px;margin:30px 0;font-size:13px}}form{{background:var(--card);border:1px solid var(--line);border-radius:24px;padding:clamp(22px,5vw,48px);box-shadow:0 24px 70px rgba(23,21,18,.08)}}
 .question{{padding:0 0 30px;margin-bottom:30px;border-bottom:1px solid #eee8df}}.question:last-of-type{{border-bottom:0}}label{{display:block;font:400 25px/1.15 Georgia,serif;margin-bottom:8px}}
-.question p{{margin:0 0 14px;color:var(--muted);font-size:13px}}textarea{{width:100%;resize:vertical;border:1px solid #cfc7bb;background:#fbfaf7;border-radius:12px;padding:14px 15px;color:var(--ink);font:inherit}}
-textarea:focus{{outline:2px solid #6e98a4;outline-offset:2px}}button{{border:0;border-radius:999px;background:var(--ink);color:white;padding:14px 24px;font-weight:800;cursor:pointer}}
+.question p{{margin:0 0 14px;color:var(--muted);font-size:13px}}textarea,select{{width:100%;resize:vertical;border:1px solid #cfc7bb;background:#fbfaf7;border-radius:12px;padding:14px 15px;color:var(--ink);font:inherit}}
+textarea:focus,select:focus{{outline:2px solid #6e98a4;outline-offset:2px}}button{{border:0;border-radius:999px;background:var(--ink);color:white;padding:14px 24px;font-weight:800;cursor:pointer}}
 .small{{font-size:12px;color:var(--muted);margin-top:14px}}
 </style>
 </head>
