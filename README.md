@@ -257,17 +257,25 @@ python -m backend.website_job --demo --business-name "Fire & Ice Wellbeing" --we
 
 Website Studio currently:
 - creates a fixed-scope quotation with deposit, revision, exclusion and ownership terms,
-- blocks real production work before verified deposit,
+- opens a browser-based client discovery questionnaire before design (goal, audience, CTA, brand direction, functionality, commercial facts, staging asset permission, approver/deadline),
+- checks the accepted quote against the client's answers and pauses for a change order instead of silently doing unquoted work,
+- records launch-only questions separately so privacy/cookies, domain access, production routing and SEO migration do not block a safe private staging build,
 - has Forge research the first-party customer site and create a factual structured build specification,
-- has Nova review UX/conversion quality,
-- gives Forge one bounded self-repair if Sentinel flags the first QA pass,
-- has Sentinel QA claims, scope, ownership and launch safeguards,
-- builds a premium responsive lead-generation site with Home, two primary collection/service pages, About, FAQ, Get Pricing, plus a staging privacy notice,
-- reuses source-site imagery in demo mode on a best-effort basis while keeping production asset-rights confirmation separate,
+- has Nova review the private staging UX, then re-review the revised specification instead of carrying forward a rejected first-pass score,
+- has Sentinel perform staging-specific QA rather than demanding production/legal completion too early,
+- gives Forge one bounded self-repair when QA finds a genuine staging issue,
+- if research/QA still finds something it should not guess, opens a targeted client follow-up questionnaire and automatically continues when the client answers,
+- builds a client-specific premium design system (palette/typography direction) instead of using the exact same theme for every business,
+- builds responsive core pages plus staging privacy and branded 404 pages,
+- reuses suitable source-site imagery in demo mode on a best-effort basis while keeping production asset-rights confirmation separate,
 - validates generated pages, internal links, form wiring, favicon, staging noindex and required assets,
-- provides a functional enquiry form backed by SQLite with validation, consent and a basic spam honeypot,
-- exports a standalone runnable Python website app and Dockerfile under the project deploy folder,
-- supports two included revision rounds and explicit customer staging approval.
+- provides a functional enquiry form with validation, acknowledgement, a spam honeypot, rate limiting and baseline security headers,
+- exports a standalone runnable Python website app and Dockerfile,
+- supports two included revision rounds and explicit staging approval,
+- keeps staging approval separate from production launch authorization,
+- records a launch questionnaire for legal identity, production form routing, asset rights, privacy/cookies, SEO migration/analytics and owner-controlled hosting/domain access,
+- can create a separate production release package only after real launch gates pass; the release copy removes staging noindex, adds canonical URLs, robots/sitemap and preserves the branded 404 page.
+
 
 Generated project files are written under `builds/<business>-<project-id>/` and are gitignored. Each project contains the quote, build spec, UX review, QA report, customer handoff checklist, staging site and standalone deploy package.
 
@@ -301,3 +309,18 @@ Approval records the customer decision but does **not** publish the site. For a 
 
 In demo mode Darwin may reuse image assets already published on the source website to make the staging preview realistic. That demo reuse is not production rights confirmation. For a real customer, use `--confirm-asset-rights` only after the customer has explicitly confirmed they control or license those assets.
 
+
+Launch-only customer questions can be collected later with:
+
+```bat
+python -m backend.website_launch_intake --project-id 1
+```
+
+Staging approval and public launch approval are separate commands. A production release package can only be created after the real commercial gates are complete:
+
+```bat
+python -m backend.website_launch_approval --project-id 1 --approve-launch
+python -m backend.website_release --project-id 1 --domain "https://www.example.com"
+```
+
+Neither command changes DNS or publishes a customer's domain by itself.
