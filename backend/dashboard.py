@@ -81,6 +81,10 @@ code{color:#cfe7ff}
       <h2>Sales pipeline</h2>
       <div id="pipeline"></div>
     </section>
+    <section class="panel wide">
+      <h2>Trading desk — paper only</h2>
+      <div id="trading"></div>
+    </section>
   </div>
 </main>
 <script>
@@ -123,7 +127,9 @@ async function refresh(){
     + makeMetric("Prospects",m.total_prospects)
     + makeMetric("Drafts",m.draft_ready)
     + makeMetric("Contacts",m.contact_ready)
-    + makeMetric("Outreach sent",m.outreach_sent);
+    + makeMetric("Outreach sent",m.outreach_sent)
+    + makeMetric("Paper P&L USD",Number(m.paper_pnl||0).toFixed(2))
+    + makeMetric("Open paper trades",m.open_paper_trades||0);
 
   document.getElementById("agents").innerHTML=d.agents.map(makeAgent).join("");
 
@@ -161,6 +167,21 @@ async function refresh(){
       +'</td><td>'+esc(p.contact_email||"-")+'</td></tr>';
   }).join("");
   document.getElementById("pipeline").innerHTML='<table><thead><tr><th>Business</th><th>Market</th><th>Category</th><th>Score</th><th>Status</th><th>Contact</th></tr></thead><tbody>'+rows+'</tbody></table>';
+
+  var tradeRows=d.trades.map(function(t){
+    return '<tr><td>'+esc(t.asset_class)+'</td><td>'+esc(t.symbol)+'</td><td>'+esc(t.status)
+      +'</td><td>'+esc(Number(t.notional_usd||0).toFixed(2))+'</td><td>'+esc(Number(t.entry_price||0).toFixed(6))
+      +'</td><td>'+esc(t.exit_price===null?"-":Number(t.exit_price).toFixed(6))
+      +'</td><td>'+esc(Number(t.pnl_usd||0).toFixed(2))+'</td></tr>';
+  }).join("");
+  var signalRows=d.trade_signals.map(function(x){
+    return '<tr><td>'+esc(x.agent)+'</td><td>'+esc(x.asset_class)+'</td><td>'+esc(x.symbol)
+      +'</td><td>'+esc(x.action)+'</td><td>'+esc(x.confidence)+'</td><td>'+esc(x.created_at.replace("T"," ").slice(0,19))+'</td></tr>';
+  }).join("");
+  document.getElementById("trading").innerHTML=
+    '<div class="small">Live market monitoring can create PAPER trades only. Real-money execution is disabled.</div>'
+    +'<div class="artifact"><h3>Paper trades</h3><table><thead><tr><th>Class</th><th>Symbol</th><th>Status</th><th>Notional</th><th>Entry</th><th>Exit</th><th>P&L USD</th></tr></thead><tbody>'+tradeRows+'</tbody></table></div>'
+    +'<div class="artifact"><h3>Latest signals</h3><table><thead><tr><th>Agent</th><th>Class</th><th>Symbol</th><th>Action</th><th>Confidence</th><th>Time</th></tr></thead><tbody>'+signalRows+'</tbody></table></div>';
 }
 refresh();
 setInterval(refresh,2000);
@@ -188,7 +209,8 @@ def state_payload():
                 WHEN 'Atlas' THEN 1 WHEN 'Mercury' THEN 2 WHEN 'Forge' THEN 3
                 WHEN 'Freya' THEN 4 WHEN 'Nova' THEN 5 WHEN 'Satoshi' THEN 6
                 WHEN 'Midas' THEN 7 WHEN 'Oracle' THEN 8 WHEN 'Ledger' THEN 9
-                WHEN 'Sentinel' THEN 10 ELSE 99 END
+                WHEN 'Sentinel' THEN 10 WHEN 'Raptor' THEN 11 WHEN 'Apex' THEN 12
+                WHEN 'Circuit' THEN 13 ELSE 99 END
             """
         ).fetchall()
     ]
@@ -252,6 +274,40 @@ def state_payload():
         ).fetchall()
     ]
 
+    trading_summary = conn.execute(
+        """
+        SELECT
+            SUM(CASE WHEN status='OPEN' THEN 1 ELSE 0 END) AS open_count,
+            COALESCE(SUM(CASE WHEN status!='OPEN' THEN pnl_usd ELSE 0 END), 0) AS realized_pnl
+        FROM paper_trades
+        """
+    ).fetchone()
+
+    trades = [
+        dict(r)
+        for r in conn.execute(
+            """
+            SELECT asset_class, symbol, status, notional_usd, entry_price,
+                   exit_price, pnl_usd, opened_at, closed_at
+            FROM paper_trades
+            ORDER BY id DESC
+            LIMIT 12
+            """
+        ).fetchall()
+    ]
+
+    trade_signals = [
+        dict(r)
+        for r in conn.execute(
+            """
+            SELECT agent, asset_class, symbol, action, confidence, created_at
+            FROM trade_signals
+            ORDER BY id DESC
+            LIMIT 12
+            """
+        ).fetchall()
+    ]
+
     payload = {
         "metrics": {
             "workday_status": session["status"] if session else "IDLE",
@@ -259,6 +315,8 @@ def state_payload():
             "draft_ready": int(pipeline["draft_ready"] or 0),
             "contact_ready": int(pipeline["contact_ready"] or 0),
             "outreach_sent": int(pipeline["outreach_sent"] or 0),
+            "paper_pnl": float(trading_summary["realized_pnl"] or 0),
+            "open_paper_trades": int(trading_summary["open_count"] or 0),
             "email_enabled": email_sending_enabled(),
             "daily_cap": daily_send_cap(),
         },
@@ -267,6 +325,8 @@ def state_payload():
         "journey_events": journey_events,
         "company_events": company_events,
         "prospects": prospects,
+        "trades": trades,
+        "trade_signals": trade_signals,
     }
     conn.close()
     return payload
