@@ -21,7 +21,7 @@ from backend.agents.website_studio import (
 from backend.site_builder import render_site, slugify, validate_site
 from backend.site_export import export_deployment_package
 from backend.reference_specs import fire_ice_reference_spec
-from backend.client_intake import collect_client_answers
+from backend.client_intake import collect_client_answers, seed_launch_questions
 from backend.site_server import serve_site
 from backend.storage import connect, init_db, now_iso
 
@@ -358,6 +358,14 @@ def main() -> None:
         "Customer completed the website goals, audience, conversion, design, functionality, commercial-facts and staging-asset questionnaire.",
     )
     _set_agent(conn, "Mercury", "READY", "Client website brief received")
+    seed_launch_questions(project_id)
+    _event(
+        conn,
+        project_id,
+        "Mercury",
+        "LAUNCH_DEPENDENCIES_RECORDED",
+        "Launch-only client requirements were recorded separately so they do not block private staging.",
+    )
     _update(conn, project_id, status="DESIGNING")
 
     try:
