@@ -4,6 +4,7 @@ from pathlib import Path
 
 from backend.agents.website_studio import CollectionSpec, FAQItem, ProductCard, WebsiteBuildSpec
 from backend.site_builder import render_site, validate_site
+from backend.site_export import export_deployment_package
 
 
 class WebsiteBuilderTests(unittest.TestCase):
@@ -75,6 +76,18 @@ class WebsiteBuilderTests(unittest.TestCase):
             self.assertIn('id="quote-form"', contact)
             self.assertIn("/api/quote", app_js)
             self.assertIn("Disallow: /", robots)
+
+    def test_export_creates_standalone_application(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "project"
+            site = project / "site"
+            render_site(self.sample_spec(), site)
+            deploy = export_deployment_package(project, site)
+
+            self.assertTrue((deploy / "app.py").exists())
+            self.assertTrue((deploy / "Dockerfile").exists())
+            self.assertTrue((deploy / "site" / "index.html").exists())
+            self.assertIn("/api/quote", (deploy / "app.py").read_text(encoding="utf-8"))
 
     def test_staging_pages_are_noindex(self):
         with tempfile.TemporaryDirectory() as tmp:
