@@ -1,3 +1,4 @@
 openai-agents
 python-dotenv
 pydantic>=2.0
+resend
