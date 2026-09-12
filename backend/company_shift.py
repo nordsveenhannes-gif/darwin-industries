@@ -200,6 +200,10 @@ def end_shift(conn) -> None:
         """
         UPDATE agent_state
         SET status='OFF_SHIFT', last_action='Workday ended', updated_at=?
+        WHERE agent IN (
+            'Atlas', 'Mercury', 'Forge', 'Freya', 'Nova',
+            'Satoshi', 'Midas', 'Oracle', 'Ledger', 'Sentinel'
+        )
         """,
         (now_iso(),),
     )
