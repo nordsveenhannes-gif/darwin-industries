@@ -11,6 +11,39 @@ from http.server import ThreadingHTTPServer
 
 
 class WebsiteServerTests(unittest.TestCase):
+    def test_custom_404_page_is_served(self):
+        original_db_path = storage.DB_PATH
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            site = root / "site"
+            site.mkdir()
+            (site / "index.html").write_text("<html><body>ok</body></html>", encoding="utf-8")
+            (site / "404.html").write_text("<html><body>branded missing page</body></html>", encoding="utf-8")
+            storage.DB_PATH = root / "darwin-test.db"
+
+            handler = type(
+                "MissingPageHandler",
+                (StagingHandler,),
+                {"site_dir": site, "project_id": None},
+            )
+            server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                try:
+                    urlopen(f"http://127.0.0.1:{server.server_port}/does-not-exist", timeout=5)
+                    self.fail("Expected an HTTP 404")
+                except Exception as exc:
+                    response = getattr(exc, "read", None)
+                    self.assertIsNotNone(response)
+                    body = exc.read().decode("utf-8")
+                    self.assertIn("branded missing page", body)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+                storage.DB_PATH = original_db_path
+
     def test_honeypot_submission_is_not_persisted(self):
         original_db_path = storage.DB_PATH
         with tempfile.TemporaryDirectory() as tmp:
