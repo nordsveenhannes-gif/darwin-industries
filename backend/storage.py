@@ -114,6 +114,31 @@ def init_db(conn: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS agent_state (
+            agent TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'READY',
+            last_action TEXT,
+            confidence INTEGER NOT NULL DEFAULT 70,
+            stress INTEGER NOT NULL DEFAULT 20,
+            motivation INTEGER NOT NULL DEFAULT 80,
+            job_security INTEGER NOT NULL DEFAULT 70,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS department_reports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER NOT NULL,
+            cycle INTEGER NOT NULL,
+            agent TEXT NOT NULL,
+            role TEXT NOT NULL,
+            assignment TEXT NOT NULL,
+            report TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(session_id) REFERENCES work_sessions(id)
+        );
+
         CREATE INDEX IF NOT EXISTS idx_outbound_email_status
             ON outbound_emails(status, sent_at);
 
@@ -141,6 +166,31 @@ def init_db(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "prospects", "contact_email_kind", "TEXT")
     _ensure_column(conn, "prospects", "contact_confidence", "INTEGER")
     _ensure_column(conn, "prospects", "updated_at", "TEXT")
+
+    roster = [
+        ("Atlas", "CEO / Capital Allocation"),
+        ("Mercury", "Sales"),
+        ("Forge", "Product / Fulfillment"),
+        ("Freya", "Freelance / Partnerships"),
+        ("Nova", "Growth"),
+        ("Satoshi", "Automation / Treasury Research"),
+        ("Midas", "Digital Assets"),
+        ("Oracle", "Research"),
+        ("Ledger", "CFO / Risk"),
+        ("Sentinel", "Operations / QA"),
+    ]
+    for agent, title in roster:
+        conn.execute(
+            """
+            INSERT INTO agent_state(
+                agent, title, status, last_action, confidence, stress,
+                motivation, job_security, updated_at
+            )
+            VALUES (?, ?, 'READY', 'Waiting for workday', 70, 20, 80, 70, ?)
+            ON CONFLICT(agent) DO UPDATE SET title=excluded.title
+            """,
+            (agent, title, now_iso()),
+        )
     conn.commit()
 
 
