@@ -83,7 +83,7 @@ A Darwin demo never counts the simulated acceptance above as revenue or payment.
 
 ## Included
 - Premium responsive redesign.
-- Six core pages: Home, Saunas, Ice Baths, About, FAQ and Get Pricing.
+- Six core pages: Home, two primary product/service pages, About, FAQ and Get Pricing.
 - Existing verified business/product information reorganised for clarity.
 - Functional quotation/enquiry form.
 - Mobile navigation and responsive layouts.
@@ -310,10 +310,11 @@ Current website: {args.website}
 Project type: six-page lead-generation website rebuild
 Primary conversion: request pricing / project enquiry
 
-Treat the supplied website as the primary factual source. Keep important product choices,
+Treat the supplied website as the primary factual source. Keep important product/service choices,
 prices, materials, lead times, dimensions, address and FAQs only when supported.
 Do not invent testimonials, results, certifications, health claims, phone numbers or emails.
-The visual renderer will create Home, Saunas, Ice Baths, About, FAQ and Get Pricing pages.
+Choose exactly two primary customer-facing product/service collections. The visual renderer will
+create Home, one page for each collection, About, FAQ and Get Pricing.
 """,
         ).final_output
         if not isinstance(spec, WebsiteBuildSpec):
@@ -324,8 +325,9 @@ The visual renderer will create Home, Saunas, Ice Baths, About, FAQ and Get Pric
             project_id,
             "Forge",
             "BUILD_SPEC_COMPLETE",
-            f"Forge produced a structured site specification with {len(spec.saunas)} sauna cards, "
-            f"{len(spec.ice_baths)} ice-bath cards and {len(spec.faqs)} FAQs.",
+            f"Forge produced a structured site specification with two collections "
+            f"({len(spec.collections[0].items)} and {len(spec.collections[1].items)} cards) "
+            f"and {len(spec.faqs)} FAQs.",
         )
         _set_agent(conn, "Forge", "READY", "Website architecture and factual copy drafted")
 
@@ -422,7 +424,7 @@ REQUIRED_CHANGES:
 - concise bullets, or "None"
 
 PASS only when:
-- the build stays inside the quoted six-page scope,
+- the build stays inside the quoted six-page scope (Home, two primary collection/service pages, About, FAQ, Get Pricing),
 - no invented testimonials/customers/awards/performance/revenue claims appear,
 - health claims are conservative rather than strengthened,
 - unverified facts are clearly withheld,
