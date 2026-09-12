@@ -407,50 +407,76 @@ CLIENT BRIEF:
 
     if not scope_decision.in_scope:
         items = "; ".join(scope_decision.out_of_scope_items) or "additional functionality"
-        _update(conn, project_id, status="SCOPE_DECISION_NEEDED")
-        _set_agent(conn, "Mercury", "WAITING_CLIENT", "Client must choose original scope or change order")
-        scope_answer = collect_client_answers(
-            project_id,
-            args.business_name,
-            questions=[
-                {
-                    "key": "scope_decision",
-                    "question": f"The brief includes work outside the accepted quote: {items}. How should we proceed?",
-                    "why": "A professional agency should not silently deliver extra work for free or surprise the customer with a later charge.",
-                    "required_for": "STAGING",
-                    "options": [
-                        "Proceed with the original quoted scope and defer the extra items",
-                        "Pause the project and prepare a revised quotation / change order",
-                    ],
-                }
-            ],
-            port=8790,
-            heading="Your brief changes the agreed scope.",
-            open_browser=args.demo,
-        )
-        choice = scope_answer.get("scope_decision", "")
-        if choice.startswith("Pause"):
-            _update(conn, project_id, status="CHANGE_ORDER_NEEDED")
+
+        if scope_decision.proceedable_if_deferred:
+            # Do not interrupt the customer for optional extras that can simply stay outside
+            # the accepted base scope. A real agency records the change-order candidate and
+            # keeps production moving on the work already purchased.
+            client_brief["deferred_out_of_scope_items"] = items
+            _event(
+                conn,
+                project_id,
+                "Mercury",
+                "SCOPE_AUTO_DEFERRED",
+                (
+                    "Darwin kept the accepted base scope moving and deferred optional out-of-scope "
+                    f"items for a later change order: {items}"
+                ),
+            )
+            print(f"Scope note: deferred optional out-of-scope items: {items}")
+        else:
+            _update(conn, project_id, status="SCOPE_DECISION_NEEDED")
+            _set_agent(
+                conn,
+                "Mercury",
+                "WAITING_CLIENT",
+                "A core requested feature conflicts with the accepted scope",
+            )
+            scope_answer = collect_client_answers(
+                project_id,
+                args.business_name,
+                questions=[
+                    {
+                        "key": "scope_decision",
+                        "question": f"A core requirement is outside the accepted quote: {items}. How should we proceed?",
+                        "why": (
+                            "This requirement changes the architecture or deliverables enough that Darwin "
+                            "should not silently omit it or deliver unquoted work."
+                        ),
+                        "required_for": "STAGING",
+                        "options": [
+                            "Proceed with the original quoted scope and defer the extra items",
+                            "Pause the project and prepare a revised quotation / change order",
+                        ],
+                    }
+                ],
+                port=8790,
+                heading="One scope decision is needed before we continue.",
+                open_browser=args.demo,
+            )
+            choice = scope_answer.get("scope_decision", "")
+            if choice.startswith("Pause"):
+                _update(conn, project_id, status="CHANGE_ORDER_NEEDED")
+                _event(
+                    conn,
+                    project_id,
+                    "Customer",
+                    "CHANGE_ORDER_REQUESTED",
+                    f"Customer chose to pause the base build and re-quote: {items}",
+                )
+                _set_agent(conn, "Mercury", "READY", "Website project paused for change order")
+                print("\nThe requested functionality exceeds the accepted quote.")
+                print("Darwin paused the build instead of hiding extra costs or doing unquoted work.")
+                conn.close()
+                return
+            client_brief["deferred_out_of_scope_items"] = items
             _event(
                 conn,
                 project_id,
                 "Customer",
-                "CHANGE_ORDER_REQUESTED",
-                f"Customer chose to pause the base build and re-quote: {items}",
+                "SCOPE_DEFERRED",
+                f"Customer chose to continue with the accepted base scope and defer: {items}",
             )
-            _set_agent(conn, "Mercury", "READY", "Website project paused for change order")
-            print("\nThe requested functionality exceeds the accepted quote.")
-            print("Darwin paused the build instead of hiding extra costs or doing unquoted work.")
-            conn.close()
-            return
-        client_brief["deferred_out_of_scope_items"] = items
-        _event(
-            conn,
-            project_id,
-            "Customer",
-            "SCOPE_DEFERRED",
-            f"Customer chose to continue with the accepted base scope and defer: {items}",
-        )
 
     _set_agent(conn, "Mercury", "READY", "Accepted website scope confirmed")
     _update(conn, project_id, status="DESIGNING")
@@ -768,7 +794,22 @@ Do not treat final launch compliance, domain credentials, final legal copy or pa
 
             staging_questions = [q for q in plan.questions if q.required_for == "STAGING"]
 
-            if staging_questions:
+            if plan.staging_can_continue:
+                # Safe omissions / launch deferrals are not a reason to make the client fill
+                # another form. Keep the agents working and record what was deferred.
+                followup = {}
+                if staging_questions or plan.safe_omissions:
+                    _event(
+                        conn,
+                        project_id,
+                        "Mercury",
+                        "CLARIFICATION_AUTO_DEFERRED",
+                        (
+                            "Darwin determined staging can continue without another client interruption. "
+                            "Uncertain facts will be omitted or deferred until launch/client review."
+                        ),
+                    )
+            elif staging_questions:
                 dynamic_questions = []
                 for index, q in enumerate(staging_questions, 1):
                     dynamic_questions.append(
@@ -777,7 +818,7 @@ Do not treat final launch compliance, domain credentials, final legal copy or pa
                             "question": q.question,
                             "why": q.why_needed,
                             "required_for": "STAGING",
-                            "placeholder": "Please answer with the decision or factual correction Darwin should use for this staging build.",
+                            "placeholder": "Please answer only this missing decision or factual correction.",
                         }
                     )
 
@@ -787,7 +828,10 @@ Do not treat final launch compliance, domain credentials, final legal copy or pa
                     project_id,
                     "Mercury",
                     "CLIENT_CLARIFICATION_REQUESTED",
-                    "Internal research/QA could not safely resolve a staging decision, so Darwin asked the client targeted follow-up questions.",
+                    (
+                        "Darwin cannot safely finish private staging without a small number of "
+                        "specific client decisions, so it opened a targeted follow-up instead of repeating the full brief."
+                    ),
                 )
                 _set_agent(conn, "Mercury", "WAITING_CLIENT", "Waiting for targeted website clarification")
                 followup = collect_client_answers(
@@ -795,7 +839,7 @@ Do not treat final launch compliance, domain credentials, final legal copy or pa
                     args.business_name,
                     questions=dynamic_questions,
                     port=8790,
-                    heading="We found a few things we should not guess.",
+                    heading="Only these specific decisions are still missing.",
                     open_browser=args.demo,
                 )
                 client_brief.update(followup)
