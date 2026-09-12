@@ -207,6 +207,9 @@ def init_db(conn: sqlite3.Connection) -> None:
             target_price REAL,
             max_hold_minutes INTEGER,
             status TEXT NOT NULL,
+            gross_pnl_usd REAL,
+            fees_usd REAL,
+            slippage_bps REAL,
             pnl_usd REAL,
             stop_text TEXT NOT NULL,
             target_text TEXT NOT NULL,
@@ -255,6 +258,9 @@ def init_db(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "paper_trades", "stop_price", "REAL")
     _ensure_column(conn, "paper_trades", "target_price", "REAL")
     _ensure_column(conn, "paper_trades", "max_hold_minutes", "INTEGER")
+    _ensure_column(conn, "paper_trades", "gross_pnl_usd", "REAL")
+    _ensure_column(conn, "paper_trades", "fees_usd", "REAL")
+    _ensure_column(conn, "paper_trades", "slippage_bps", "REAL")
 
     roster = [
         ("Atlas", "CEO / Capital Allocation"),
