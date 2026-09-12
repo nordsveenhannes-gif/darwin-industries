@@ -158,6 +158,31 @@ def run_support_shift(conn, session_id: int, run_id: int | None, cycle: int) -> 
         raise
 
 
+def start_shift(conn) -> None:
+    assignments = {
+        "Atlas": "Run CEO priority review and allocate attention.",
+        "Mercury": "Score prospects, draft offers, and move qualified prospects toward a sale.",
+        "Forge": "Audit websites and improve fulfillment quality.",
+        "Freya": "Develop adjacent service, freelance, and partnership opportunities.",
+        "Nova": "Find and test growth improvements.",
+        "Satoshi": "Research automation, payment, and cost-efficiency improvements.",
+        "Midas": "Turn repeated work into reusable digital assets.",
+        "Oracle": "Research and verify real prospects and safe business contacts.",
+        "Ledger": "Review unit economics and financial risk.",
+        "Sentinel": "QA company work and block unsafe or deceptive actions.",
+    }
+    for agent, assignment in assignments.items():
+        conn.execute(
+            """
+            UPDATE agent_state
+            SET status='ON_SHIFT', last_action=?, updated_at=?
+            WHERE agent=?
+            """,
+            (assignment, now_iso(), agent),
+        )
+    conn.commit()
+
+
 def set_core_agent_action(conn, agent: str, action: str, status: str = "WORKING") -> None:
     conn.execute(
         """
