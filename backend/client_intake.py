@@ -61,7 +61,56 @@ INITIAL_QUESTIONS = [
         "required_for": "STAGING",
         "placeholder": "Answer yes/no and note any images, logos or copy we must not reuse.",
     },
+    {
+        "key": "approver_and_deadline",
+        "question": "Who is the single person who approves feedback, and is there a hard launch date or event?",
+        "why": "A clear approver and deadline prevent conflicting revisions and unrealistic delivery expectations.",
+        "required_for": "STAGING",
+        "placeholder": "Example: I approve all revisions. No hard event, but we would like to launch within 3 weeks.",
+    },
 ]
+
+
+LAUNCH_QUESTIONS = [
+    {
+        "key": "launch_legal_identity",
+        "question": "Confirm the legal/trading name, business address and any company/VAT details that must appear publicly.",
+        "why": "Production legal and commercial pages should use customer-confirmed identity details.",
+        "required_for": "LAUNCH",
+    },
+    {
+        "key": "launch_form_destination",
+        "question": "Where should production website enquiries go, and what response expectation should the site communicate?",
+        "why": "The live form must be routed and tested against a real customer-owned inbox or CRM.",
+        "required_for": "LAUNCH",
+    },
+    {
+        "key": "launch_asset_rights",
+        "question": "Confirm that the customer owns or licenses every logo, image, font, video and piece of copy that will ship.",
+        "why": "Public launch requires production asset rights, not merely staging permission.",
+        "required_for": "LAUNCH",
+    },
+    {
+        "key": "launch_privacy_cookies",
+        "question": "Provide/approve the privacy notice and identify any analytics, advertising, chat or other non-essential cookies/trackers required.",
+        "why": "The production site must accurately disclose data processing and configure consent where required.",
+        "required_for": "LAUNCH",
+    },
+    {
+        "key": "launch_seo_migration",
+        "question": "Which existing URLs, SEO pages, analytics/Search Console properties and tracking must be preserved during the redesign?",
+        "why": "A redesign can damage search visibility if old URLs, redirects, metadata and measurement are ignored.",
+        "required_for": "LAUNCH",
+    },
+    {
+        "key": "launch_hosting_domain",
+        "question": "Who owns the domain and hosting, and who can grant secure production access when launch is approved?",
+        "why": "Darwin should never take ownership of the client's domain or request ordinary-email passwords.",
+        "required_for": "LAUNCH",
+    },
+]
+
+
 
 
 def _seed_questions(project_id: int, questions: list[dict]) -> None:
@@ -90,6 +139,10 @@ def _seed_questions(project_id: int, questions: list[dict]) -> None:
         )
     conn.commit()
     conn.close()
+
+
+def seed_launch_questions(project_id: int) -> None:
+    _seed_questions(project_id, LAUNCH_QUESTIONS)
 
 
 def answers_for_project(project_id: int) -> dict[str, str]:
