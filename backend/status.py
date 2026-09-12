@@ -1,7 +1,14 @@
+import os
+from datetime import datetime, timezone
+
+from dotenv import load_dotenv
+
+from backend.emailer import daily_send_cap, email_sending_enabled
 from backend.storage import connect, init_db
 
 
 def main() -> None:
+    load_dotenv()
     conn = connect()
     init_db(conn)
 
@@ -43,7 +50,11 @@ def main() -> None:
             SUM(CASE WHEN status='RESEARCHED' THEN 1 ELSE 0 END) AS researched,
             SUM(CASE WHEN status='SCORED' THEN 1 ELSE 0 END) AS scored,
             SUM(CASE WHEN status='AUDITED' THEN 1 ELSE 0 END) AS audited,
-            SUM(CASE WHEN status='DRAFT_READY' THEN 1 ELSE 0 END) AS draft_ready
+            SUM(CASE WHEN status='DRAFT_READY' THEN 1 ELSE 0 END) AS draft_ready,
+            SUM(CASE WHEN status='CONTACT_READY' THEN 1 ELSE 0 END) AS contact_ready,
+            SUM(CASE WHEN status='OUTREACH_SENT' THEN 1 ELSE 0 END) AS sent,
+            SUM(CASE WHEN status='CONTACT_UNAVAILABLE' THEN 1 ELSE 0 END) AS no_contact,
+            SUM(CASE WHEN status='SEND_FAILED_REVIEW' THEN 1 ELSE 0 END) AS failed
         FROM prospects
         """
     ).fetchone()
@@ -54,6 +65,23 @@ def main() -> None:
     print(f"  Scored: {pipeline['scored'] or 0}")
     print(f"  Audited: {pipeline['audited'] or 0}")
     print(f"  Outreach drafts ready: {pipeline['draft_ready'] or 0}")
+    print(f"  Verified public role contacts: {pipeline['contact_ready'] or 0}")
+    print(f"  Outreach sent: {pipeline['sent'] or 0}")
+    print(f"  No safe public contact: {pipeline['no_contact'] or 0}")
+    print(f"  Send failures held for review: {pipeline['failed'] or 0}")
+
+    start = datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00")
+    sent_today = conn.execute(
+        """
+        SELECT COUNT(*) AS n
+        FROM outbound_emails
+        WHERE status='SENT' AND sent_at >= ?
+        """,
+        (start,),
+    ).fetchone()["n"]
+    suppressed = conn.execute(
+        "SELECT COUNT(*) AS n FROM suppressions"
+    ).fetchone()["n"]
 
     session = conn.execute(
         "SELECT * FROM work_sessions ORDER BY id DESC LIMIT 1"
@@ -70,8 +98,17 @@ def main() -> None:
         if session["ended_at"]:
             print(f"  Ended: {session['ended_at']}")
 
-    print("\nEmail sending: DISABLED")
-    print("Cash spending: DISABLED")
+    print("\nOUTBOUND CONTROLS")
+    print(
+        "  Email sending: "
+        + ("ENABLED" if email_sending_enabled() else "DISABLED")
+    )
+    print(f"  Daily cap: {daily_send_cap()}")
+    print(f"  Sent today (UTC): {sent_today or 0}")
+    print(f"  Suppressed addresses: {suppressed or 0}")
+    print(f"  Sender configured: {'YES' if os.getenv('DARWIN_EMAIL_FROM') else 'NO'}")
+    print(f"  Reply-to configured: {'YES' if os.getenv('DARWIN_EMAIL_REPLY_TO') else 'NO'}")
+    print("  Cash spending: DISABLED")
     print("No model calls were used to render this status screen.")
 
 
