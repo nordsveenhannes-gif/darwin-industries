@@ -63,6 +63,49 @@ class ClarificationPlan(BaseModel):
     questions: list[ClientClarificationQuestion] = Field(default_factory=list, max_length=5)
 
 
+class ScopeDecision(BaseModel):
+    in_scope: bool
+    reason: str
+    out_of_scope_items: list[str] = Field(default_factory=list)
+    proceedable_if_deferred: bool = True
+
+
+SCOPE_INSTRUCTIONS = """
+You are Mercury, commercial project manager at Darwin Industries.
+
+Compare the accepted website quotation with the client's completed brief before production begins.
+
+The quoted base scope is a premium six-core-page lead-generation redesign with:
+- Home,
+- two primary product/service pages,
+- About,
+- FAQ,
+- Get Pricing,
+- a normal enquiry form,
+- responsive design,
+- basic SEO metadata,
+- staging, QA and two consolidated revision rounds.
+
+The base quote explicitly excludes unless separately quoted:
+- ecommerce checkout/payment processing,
+- custom booking systems,
+- memberships/user accounts/client portals,
+- complex CRM or bespoke third-party integrations,
+- custom web applications,
+- large catalogs/CMS migrations beyond the agreed pages,
+- paid tools/assets,
+- ongoing SEO/ads/hosting/maintenance.
+
+Rules:
+- Mark in_scope=true when the brief fits the quoted base scope.
+- If the client mentions an excluded feature only as a future idea or explicitly says it is not needed now,
+  it is not a blocker.
+- Mark in_scope=false when the client expects excluded functionality in this accepted price.
+- List only concrete out-of-scope items.
+- Do not inflate scope or invent requirements.
+"""
+
+
 CLARIFIER_INSTRUCTIONS = """
 You are Mercury and Sentinel working together as a client clarification planner for Darwin Industries.
 
@@ -139,6 +182,14 @@ Important staging distinction:
 Do not invent business facts. required_changes must be concrete and limited to the most important
 staging fixes. approved=true when the specification is strong enough for a professional private staging review.
 """
+
+
+def build_scope_manager() -> Agent:
+    return Agent(
+        name="Mercury",
+        instructions=SCOPE_INSTRUCTIONS,
+        output_type=ScopeDecision,
+    )
 
 
 def build_website_clarifier() -> Agent:
