@@ -252,13 +252,21 @@ div{{max-width:620px;background:white;padding:42px;border-radius:24px}}h1{{font-
         def log_message(self, format, *args):
             return
 
-    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    try:
+        server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    except OSError:
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+
+    actual_port = int(server.server_port)
     print("\n=== CLIENT WEBSITE QUESTIONNAIRE ===")
-    print(f"Open: http://127.0.0.1:{port}")
+    print(f"Open: http://127.0.0.1:{actual_port}")
     print("Darwin is waiting for the customer's answers before it commits the staging design.\n")
 
     if open_browser:
-        threading.Timer(0.7, lambda: webbrowser.open(f"http://127.0.0.1:{port}")).start()
+        threading.Timer(
+            0.7,
+            lambda: webbrowser.open(f"http://127.0.0.1:{actual_port}"),
+        ).start()
 
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
