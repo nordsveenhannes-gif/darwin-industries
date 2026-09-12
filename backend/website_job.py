@@ -9,6 +9,7 @@ from agents import Runner
 from dotenv import load_dotenv
 
 from backend.agents.sentinel import build_sentinel
+from backend.asset_collector import collect_source_images
 from backend.agents.website_studio import (
     UXReview,
     WebsiteBuildSpec,
@@ -186,6 +187,11 @@ def main() -> None:
         "--accept-quote",
         action="store_true",
         help="Record quote acceptance for a non-demo project. This is not payment verification.",
+    )
+    parser.add_argument(
+        "--confirm-asset-rights",
+        action="store_true",
+        help="Confirm the real customer has rights to reuse assets already published on their source website.",
     )
     parser.add_argument(
         "--serve",
@@ -440,7 +446,20 @@ PASS only when:
         _set_agent(conn, "Sentinel", "READY", "Website project passed claims/scope QA")
 
         _set_agent(conn, "Midas", "WORKING", "Rendering reusable premium website system")
-        render_site(spec, site_dir)
+        image_files = []
+        if args.demo or args.confirm_asset_rights:
+            image_files = collect_source_images(args.website, site_dir / "assets", max_images=8)
+            _event(
+                conn,
+                project_id,
+                "Midas",
+                "SOURCE_ASSETS_COLLECTED",
+                (
+                    f"Collected {len(image_files)} public source-site image asset(s) for staging reuse. "
+                    "Demo reuse is not a substitute for production asset-rights confirmation."
+                ),
+            )
+        render_site(spec, site_dir, image_files=image_files)
         errors = validate_site(site_dir)
         if errors:
             raise RuntimeError("Static website validation failed: " + " | ".join(errors))
