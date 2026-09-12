@@ -21,6 +21,10 @@ MOONSHOT_TRADES = "https://api.moonshot.cc/trades/v1/latest/solana/{token_id}"
 ALPACA_DATA = "https://data.alpaca.markets"
 DEXSCREENER_BOOSTS = "https://api.dexscreener.com/token-boosts/top/v1"
 DEXSCREENER_TOKENS = "https://api.dexscreener.com/tokens/v1/solana/{addresses}"
+GECKO_OHLCV = (
+    "https://api.geckoterminal.com/api/v2/networks/solana/pools/"
+    "{pool_address}/ohlcv/minute?aggregate=5&limit=48"
+)
 
 
 def _http_json(url: str, headers: dict[str, str] | None = None, timeout: int = 15):
@@ -329,6 +333,144 @@ This is simulation only; no live order may be placed.
     return decision, text
 
 
+def _gecko_ohlcv(pool_address: str) -> list[dict]:
+    payload = _http_json(GECKO_OHLCV.format(pool_address=pool_address), timeout=8)
+    rows = (
+        ((payload.get("data") or {}).get("attributes") or {}).get("ohlcv_list")
+        if isinstance(payload, dict)
+        else None
+    ) or []
+    candles = []
+    for row in rows:
+        if not isinstance(row, list) or len(row) < 6:
+            continue
+        try:
+            candles.append(
+                {
+                    "timestamp": int(row[0]),
+                    "open": float(row[1]),
+                    "high": float(row[2]),
+                    "low": float(row[3]),
+                    "close": float(row[4]),
+                    "volume": float(row[5]),
+                }
+            )
+        except (TypeError, ValueError):
+            continue
+    candles.sort(key=lambda x: x["timestamp"])
+    return candles[-48:]
+
+
+def _meme_setup_features(
+    candles: list[dict],
+    buys_h1: int = 0,
+    sells_h1: int = 0,
+) -> dict:
+    result = {
+        "passes": False,
+        "reason": "insufficient 5-minute OHLCV history",
+        "support_price": None,
+        "support_touches": 0,
+        "distance_from_support_pct": None,
+        "momentum_15m_pct": None,
+        "volume_ratio": None,
+        "buys_h1": int(buys_h1 or 0),
+        "sells_h1": int(sells_h1 or 0),
+        "recommended_stop": None,
+        "recommended_target": None,
+    }
+    if len(candles) < 12:
+        return result
+
+    recent = candles[-30:]
+    historical = recent[:-1]
+    lows = [float(c["low"]) for c in historical if c.get("low")]
+    if len(lows) < 8:
+        result["reason"] = "not enough usable lows to identify repeat support"
+        return result
+
+    best_anchor = None
+    best_matches = []
+    for anchor in lows:
+        if anchor <= 0:
+            continue
+        matches = [low for low in lows if abs(low - anchor) / anchor <= 0.012]
+        if len(matches) > len(best_matches):
+            best_anchor = anchor
+            best_matches = matches
+
+    if not best_anchor or not best_matches:
+        result["reason"] = "no support cluster found"
+        return result
+
+    support = sorted(best_matches)[len(best_matches) // 2]
+    current = float(recent[-1]["close"])
+    previous = float(recent[-4]["close"]) if len(recent) >= 4 else float(recent[-2]["close"])
+    momentum_15m = ((current / previous) - 1.0) * 100 if previous > 0 else 0.0
+
+    recent_volumes = [float(c.get("volume") or 0) for c in recent[-3:]]
+    prior_volumes = [float(c.get("volume") or 0) for c in recent[-9:-3]]
+    recent_volume = sum(recent_volumes) / max(len(recent_volumes), 1)
+    prior_volume = sum(prior_volumes) / max(len(prior_volumes), 1)
+    volume_ratio = recent_volume / prior_volume if prior_volume > 0 else 1.0
+
+    touches = len(best_matches)
+    distance_pct = ((current / support) - 1.0) * 100 if support > 0 else 999.0
+    buy_pressure = buys_h1 > sells_h1 and buys_h1 >= 5
+
+    # This is deliberately a deterministic pre-filter, not a trade order.
+    # It ensures Raptor sees setups that can actually satisfy the user's strategy:
+    # repeated support, a reclaim away from it, and strengthening activity.
+    passes = (
+        touches >= 2
+        and 0.4 <= distance_pct <= 8.0
+        and momentum_15m >= 0.30
+        and volume_ratio >= 1.05
+        and buy_pressure
+    )
+
+    stop = support * 0.985
+    risk = max(current - stop, current * 0.015)
+    target = current + risk * 2.2
+
+    result.update(
+        {
+            "passes": passes,
+            "reason": (
+                "repeat support + reclaim + momentum/volume gate passed"
+                if passes
+                else (
+                    f"gate not met: touches={touches}, distance={distance_pct:.2f}%, "
+                    f"15m momentum={momentum_15m:.2f}%, volume={volume_ratio:.2f}x, "
+                    f"h1 buys/sells={buys_h1}/{sells_h1}"
+                )
+            ),
+            "support_price": support,
+            "support_touches": touches,
+            "distance_from_support_pct": round(distance_pct, 3),
+            "momentum_15m_pct": round(momentum_15m, 3),
+            "volume_ratio": round(volume_ratio, 3),
+            "recommended_stop": stop,
+            "recommended_target": target,
+        }
+    )
+    return result
+
+
+def _compact_meme_candidate(details: dict) -> dict:
+    return {
+        "symbol": details.get("symbol"),
+        "token_address": details.get("token_address"),
+        "pool_address": details.get("pool_address"),
+        "price_usd": details.get("price_usd"),
+        "liquidity_usd": details.get("liquidity_usd"),
+        "volume_h24": details.get("volume_h24"),
+        "activity_h1": details.get("activity_h1"),
+        "setup_gate": details.get("setup_gate"),
+        "ohlcv_5m": (details.get("ohlcv_5m") or [])[-24:],
+    }
+
+
 def _dexscreener_meme_candidates() -> list[dict]:
     """
     Fallback market feed when Moonshot's legacy api.moonshot.cc hostname is unavailable.
@@ -371,7 +513,10 @@ def _dexscreener_meme_candidates() -> list[dict]:
         volume_h24 = _number((pair.get("volume") or {}).get("h24")) or 0.0
         txns_h1 = pair.get("txns") or {}
         h1 = txns_h1.get("h1") or {}
-        activity = int(h1.get("buys") or 0) + int(h1.get("sells") or 0)
+        buys_h1 = int(h1.get("buys") or 0)
+        sells_h1 = int(h1.get("sells") or 0)
+        activity = buys_h1 + sells_h1
+        pool_address = str(pair.get("pairAddress") or "").strip()
 
         if not address or not symbol or not price:
             continue
@@ -391,6 +536,9 @@ def _dexscreener_meme_candidates() -> list[dict]:
                 "liquidity_usd": liquidity,
                 "volume_h24": volume_h24,
                 "activity_h1": activity,
+                "buys_h1": buys_h1,
+                "sells_h1": sells_h1,
+                "pool_address": pool_address,
             }
 
     return sorted(
@@ -449,20 +597,41 @@ def _meme_market_bundle(conn):
     for candidate in _dexscreener_meme_candidates():
         symbol = candidate["symbol"]
         price = candidate["price"]
+        candles = []
+        ohlcv_error = None
+        pool_address = candidate.get("pool_address")
+        if pool_address:
+            try:
+                candles = _gecko_ohlcv(pool_address)
+            except Exception as exc:
+                ohlcv_error = str(exc)[:300]
+
+        setup_gate = _meme_setup_features(
+            candles,
+            buys_h1=candidate.get("buys_h1", 0),
+            sells_h1=candidate.get("sells_h1", 0),
+        )
         details = {
-            "market_source": "dexscreener",
+            "market_source": "dexscreener+geckoterminal",
+            "symbol": symbol,
             "token_address": candidate["token_id"],
-            "pair": candidate["payload"],
+            "pool_address": pool_address,
+            "price_usd": price,
             "liquidity_usd": candidate["liquidity_usd"],
             "volume_h24": candidate["volume_h24"],
             "activity_h1": candidate["activity_h1"],
+            "buys_h1": candidate.get("buys_h1", 0),
+            "sells_h1": candidate.get("sells_h1", 0),
+            "ohlcv_5m": candles,
+            "ohlcv_error": ohlcv_error,
+            "setup_gate": setup_gate,
         }
         _snapshot(conn, "MEME", symbol, "dexscreener", price, details)
         prices[symbol] = price
         details["local_price_history"] = _history(conn, "MEME", symbol, 30)
         bundle.append(details)
 
-    return bundle, prices, source
+    return bundle, prices, "dexscreener+geckoterminal"
 
 def _moonshot_cycle(conn, model_budget: list[int], max_model_calls: int) -> None:
     _set_agent(conn, "Raptor", "WORKING", "Scanning live Solana meme market data for paper setups")
@@ -476,16 +645,50 @@ def _moonshot_cycle(conn, model_budget: list[int], max_model_calls: int) -> None
             _set_agent(conn, "Raptor", "READY", "Solana scan complete; no setup review")
             return
 
-        print(f"Raptor market feed: {market_source}; {len(bundle)} candidate(s) loaded.")
-        idea = Runner.run_sync(
-            build_raptor(),
-            "Choose at most one PAPER setup from these live Solana market snapshots. "
-            "Repeated support must be evidenced by local_price_history; if it is not, WAIT.\n\n"
-            + json.dumps(bundle, ensure_ascii=False)[:80000],
-        ).final_output
-        model_budget[0] += 1
-        if not isinstance(idea, MemeTradeIdea):
-            raise RuntimeError("Raptor returned an unexpected output.")
+        gated = [
+            item
+            for item in bundle
+            if (item.get("setup_gate") or {}).get("passes")
+        ]
+        print(
+            f"Raptor market feed: {market_source}; {len(bundle)} candidate(s), "
+            f"{len(gated)} passed deterministic support/momentum gate."
+        )
+
+        if not gated:
+            best = max(
+                bundle,
+                key=lambda x: int((x.get("setup_gate") or {}).get("support_touches") or 0),
+            )
+            gate = best.get("setup_gate") or {}
+            idea = MemeTradeIdea(
+                symbol=str(best.get("symbol") or "NONE"),
+                action="WAIT",
+                confidence=85,
+                thesis="No scanned Solana meme candidate passed the deterministic setup gate.",
+                support_evidence=gate.get("reason") or "No valid repeated support setup.",
+                momentum_evidence=(
+                    f"15m momentum {gate.get('momentum_15m_pct')}%; "
+                    f"volume ratio {gate.get('volume_ratio')}x; "
+                    f"h1 buys/sells {gate.get('buys_h1')}/{gate.get('sells_h1')}."
+                ),
+                invalidation="No paper position was opened.",
+                take_profit_logic="Not applicable while waiting.",
+                max_hold_minutes=30,
+            )
+        else:
+            model_view = [_compact_meme_candidate(item) for item in gated[:3]]
+            idea = Runner.run_sync(
+                build_raptor(),
+                "Choose at most one PAPER setup from these live Solana candidates. "
+                "Each candidate already passed a deterministic repeated-support/reclaim/momentum prefilter. "
+                "Independently verify the supplied 5-minute OHLCV. Prefer BUY when the setup remains valid "
+                "and there is no clear risk disqualifier; otherwise WAIT. Use supplied prices only.\n\n"
+                + json.dumps(model_view, ensure_ascii=False)[:45000],
+            ).final_output
+            model_budget[0] += 1
+            if not isinstance(idea, MemeTradeIdea):
+                raise RuntimeError("Raptor returned an unexpected output.")
 
         print(
             f"Raptor decision: {idea.action} {idea.symbol} "
