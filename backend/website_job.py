@@ -11,14 +11,17 @@ from dotenv import load_dotenv
 from backend.agents.sentinel import build_sentinel
 from backend.asset_collector import collect_source_images
 from backend.agents.website_studio import (
+    ClarificationPlan,
     UXReview,
     WebsiteBuildSpec,
+    build_website_clarifier,
     build_website_forge,
     build_website_nova,
 )
 from backend.site_builder import render_site, slugify, validate_site
 from backend.site_export import export_deployment_package
 from backend.reference_specs import fire_ice_reference_spec
+from backend.client_intake import collect_client_answers
 from backend.site_server import serve_site
 from backend.storage import connect, init_db, now_iso
 
@@ -322,6 +325,32 @@ def main() -> None:
         conn.close()
         return
 
+    _update(conn, project_id, status="CLIENT_INPUT_NEEDED")
+    _event(
+        conn,
+        project_id,
+        "Mercury",
+        "CLIENT_BRIEF_REQUESTED",
+        "Darwin opened a client questionnaire before committing design, content and functionality decisions.",
+    )
+    _set_agent(conn, "Mercury", "WAITING_CLIENT", "Waiting for website project brief")
+    client_brief = collect_client_answers(
+        project_id,
+        args.business_name,
+        port=8790,
+        heading="Before we design, we need your brief.",
+        open_browser=args.demo,
+    )
+    _event(
+        conn,
+        project_id,
+        "Customer",
+        "CLIENT_BRIEF_COMPLETE",
+        "Customer completed the website goals, audience, conversion, design, functionality, commercial-facts and staging-asset questionnaire.",
+    )
+    _set_agent(conn, "Mercury", "READY", "Client website brief received")
+    _update(conn, project_id, status="DESIGNING")
+
     try:
         _set_agent(conn, "Forge", "WORKING", f"Architecting premium website for {args.business_name}")
         _event(
@@ -347,6 +376,13 @@ prices, materials, lead times, dimensions, address and FAQs only when supported.
 Do not invent testimonials, results, certifications, health claims, phone numbers or emails.
 Choose exactly two primary customer-facing product/service collections. The visual renderer will
 create Home, one page for each collection, About, FAQ and Get Pricing.
+
+CLIENT BRIEF:
+{json.dumps(client_brief, ensure_ascii=False, indent=2)}
+
+Use the client's answers for goals, audience, desired action, design direction and required functionality.
+Treat corrections to commercial facts as client-supplied information; if they conflict with the public site,
+do not silently choose a version. Omit the disputed fact from staging or place it in unverified_claims.
 """,
             ).final_output
             if not isinstance(spec, WebsiteBuildSpec):
