@@ -10,6 +10,9 @@ class MemeTradeIdea(BaseModel):
     thesis: str
     support_evidence: str
     momentum_evidence: str
+    entry_price: float | None = Field(default=None, gt=0)
+    stop_price: float | None = Field(default=None, gt=0)
+    take_profit_price: float | None = Field(default=None, gt=0)
     invalidation: str
     take_profit_logic: str
     max_hold_minutes: int = Field(ge=1, le=240)
@@ -35,6 +38,7 @@ Rules:
 - Reject obviously thin, stale, or incomplete data.
 - Treat memecoins as extremely high risk.
 - Use only the supplied data.
+- BUY ideas must include entry_price, stop_price, and take_profit_price based only on supplied prices.
 - A trade idea must have a defined invalidation and exit logic.
 """
 
