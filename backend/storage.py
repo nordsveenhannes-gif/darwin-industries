@@ -14,6 +14,14 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
+def _ensure_column(conn: sqlite3.Connection, table: str, name: str, ddl: str) -> None:
+    columns = {
+        row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+    }
+    if name not in columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+
+
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(
         """
@@ -56,6 +64,12 @@ def init_db(conn: sqlite3.Connection) -> None:
         );
         """
     )
+
+    # Safe migrations for databases created by older Darwin builds.
+    _ensure_column(conn, "tasks", "result_text", "TEXT")
+    _ensure_column(conn, "tasks", "qa_report", "TEXT")
+    _ensure_column(conn, "tasks", "last_error", "TEXT")
+    _ensure_column(conn, "tasks", "updated_at", "TEXT")
     conn.commit()
 
 
@@ -93,6 +107,18 @@ def set_run_status(conn: sqlite3.Connection, run_id: int, status: str) -> None:
     conn.commit()
 
 
+def latest_report(conn: sqlite3.Connection, run_id: int, agent: str) -> str:
+    row = conn.execute(
+        """
+        SELECT report FROM reports
+        WHERE run_id=? AND agent=?
+        ORDER BY id DESC LIMIT 1
+        """,
+        (run_id, agent),
+    ).fetchone()
+    return row["report"] if row else ""
+
+
 def seed_validation_tasks(conn: sqlite3.Connection, run_id: int) -> None:
     tasks = [
         ("Forge", "Build website-audit template and QA checklist", 0, 0),
@@ -115,10 +141,123 @@ def seed_validation_tasks(conn: sqlite3.Connection, run_id: int) -> None:
             """
             INSERT INTO tasks(
                 run_id, owner, title, status, attempts, max_attempts,
-                cash_budget_usd, external_action, created_at
+                cash_budget_usd, external_action, created_at, updated_at
             )
-            VALUES (?, ?, ?, 'READY', 0, 2, ?, ?, ?)
+            VALUES (?, ?, ?, 'READY', 0, 2, ?, ?, ?, ?)
             """,
-            (run_id, owner, title, cash_budget, external_action, now_iso()),
+            (
+                run_id,
+                owner,
+                title,
+                cash_budget,
+                external_action,
+                now_iso(),
+                now_iso(),
+            ),
         )
     conn.commit()
+
+
+def claim_next_internal_task(conn: sqlite3.Connection, run_id: int):
+    task = conn.execute(
+        """
+        SELECT * FROM tasks
+        WHERE run_id=?
+          AND status='READY'
+          AND external_action=0
+          AND cash_budget_usd=0
+        ORDER BY id
+        LIMIT 1
+        """,
+        (run_id,),
+    ).fetchone()
+
+    if not task:
+        return None
+
+    conn.execute(
+        """
+        UPDATE tasks
+        SET status='IN_PROGRESS',
+            attempts=attempts+1,
+            updated_at=?
+        WHERE id=?
+        """,
+        (now_iso(), task["id"]),
+    )
+    conn.commit()
+    return conn.execute("SELECT * FROM tasks WHERE id=?", (task["id"],)).fetchone()
+
+
+def complete_task(
+    conn: sqlite3.Connection,
+    task_id: int,
+    result_text: str,
+    qa_report: str,
+) -> None:
+    conn.execute(
+        """
+        UPDATE tasks
+        SET status='DONE',
+            result_text=?,
+            qa_report=?,
+            last_error=NULL,
+            updated_at=?
+        WHERE id=?
+        """,
+        (result_text, qa_report, now_iso(), task_id),
+    )
+    conn.commit()
+
+
+def fail_or_retry_task(
+    conn: sqlite3.Connection,
+    task_id: int,
+    result_text: str,
+    qa_report: str,
+    error: str = "",
+) -> str:
+    task = conn.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
+    next_status = "BLOCKED" if task["attempts"] >= task["max_attempts"] else "READY"
+
+    conn.execute(
+        """
+        UPDATE tasks
+        SET status=?,
+            result_text=?,
+            qa_report=?,
+            last_error=?,
+            updated_at=?
+        WHERE id=?
+        """,
+        (
+            next_status,
+            result_text,
+            qa_report,
+            error or None,
+            now_iso(),
+            task_id,
+        ),
+    )
+    conn.commit()
+    return next_status
+
+
+def refresh_run_status(conn: sqlite3.Connection, run_id: int) -> str:
+    rows = conn.execute(
+        "SELECT status, COUNT(*) AS n FROM tasks WHERE run_id=? GROUP BY status",
+        (run_id,),
+    ).fetchall()
+    counts = {row["status"]: row["n"] for row in rows}
+
+    if counts.get("BLOCKED", 0):
+        status = "INTERNAL_BLOCKED"
+    elif counts.get("READY", 0) or counts.get("IN_PROGRESS", 0):
+        status = "WORKING_INTERNAL"
+    elif counts.get("DONE", 0):
+        status = "INTERNAL_COMPLETE"
+    else:
+        status = "READY_INTERNAL"
+
+    set_run_status(conn, run_id, status)
+    return status
