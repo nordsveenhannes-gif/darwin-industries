@@ -46,6 +46,8 @@ Useful zero-model-call views:
 python -m backend.status
 python -m backend.prospects
 python -m backend.emailer
+python -m backend.dashboard
+python -m backend.board
 ```
 
 ## Full-company workday
@@ -59,6 +61,40 @@ A normal six-cycle workday uses the roster this way:
 - **Atlas, Ledger, Nova, Freya, Midas, and Satoshi** rotate through one focused department assignment per cycle so all six complete work during a normal 6-hour session.
 
 The rotation is deliberate: all agents are on shift, but Darwin does not burn six extra model calls every hour just to make them look busy. Department outputs are persisted and can be read with `python -m backend.board`. The status screen also tracks each agent's last action plus simulated confidence, stress, motivation, and job security.
+
+## Live Mission Control + owner customer demo
+
+Darwin now includes a local live monitoring screen. It reads SQLite state only, auto-refreshes every two seconds, and does not trigger model calls.
+
+Start it in one Command Prompt window:
+
+```bat
+python -m backend.dashboard
+```
+
+Open:
+
+```text
+http://127.0.0.1:8765
+```
+
+The screen shows the full agent floor, current actions, simulated confidence/stress/motivation/job security, sales-pipeline state, company events, and a step-by-step customer journey.
+
+To experience Darwin as the customer, use a second Command Prompt window:
+
+```bat
+python -m backend.demo_customer --business-name "Uptrend" --website "https://uptrend.live" --email "hannes@uptrend.live" --pace-seconds 5
+```
+
+That run performs live public research, creates a focused audit, Sentinel QA-checks it, Mercury writes the actual customer approach, and Sentinel QA-checks the email. It stops before sending by default.
+
+To send the final approved demo email to the explicitly supplied address:
+
+```bat
+python -m backend.demo_customer --business-name "Uptrend" --website "https://uptrend.live" --email "hannes@uptrend.live" --pace-seconds 5 --send
+```
+
+The demo deliberately stops at the payment boundary because Stripe checkout/webhook is not wired into Darwin yet. The dashboard labels that gap instead of fabricating a sale.
 
 ## Controlled outbound email
 
