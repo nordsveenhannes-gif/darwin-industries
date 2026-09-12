@@ -157,16 +157,25 @@ def _write_project_files(
 
 Before public launch:
 
-- [ ] Customer has reviewed the staging site.
-- [ ] Customer has confirmed factual product/pricing/legal copy.
-- [ ] Customer has confirmed rights to all photography, logos and supplied assets.
-- [ ] Customer has supplied privacy/terms/cookie requirements where applicable.
-- [ ] All requested revision rounds are complete.
-- [ ] Enquiry routing has been tested with the customer's real destination.
+- [ ] Customer has reviewed and explicitly approved the current staging site.
+- [ ] Customer has confirmed factual product, pricing, VAT, delivery, installation, warranty and returns copy that appears on the live site.
+- [ ] Customer has confirmed rights to all photography, logos, fonts, video and supplied/reused assets.
+- [ ] Legal business identity and contact details are confirmed.
+- [ ] Production privacy notice is approved and names the real data controller, purposes, retention and processors.
+- [ ] Cookie/analytics inventory is known; non-essential storage/analytics is not enabled before the required consent mechanism.
+- [ ] Enquiry routing is connected to the customer's real email/CRM and a real end-to-end submission has been tested.
+- [ ] Accessibility QA covers labels, keyboard access, focus states, contrast, responsive layout and meaningful image alternatives where needed.
+- [ ] Existing URLs are inventoried and any changed URLs have a one-to-one redirect map; important pages are not blindly redirected to the homepage.
+- [ ] Page titles/descriptions, canonical URLs, sitemap, robots rules and any structured data are production-ready.
+- [ ] Staging noindex/robots blocks are removed only in the final production release.
+- [ ] Custom 404 behavior, navigation, forms, external links and critical integrations are tested.
+- [ ] Existing analytics/Search Console requirements are preserved or deliberately replaced with the customer's approval.
+- [ ] SSL/HTTPS and the production hostname are verified.
 - [ ] Domain/hosting access uses a secure owner-controlled method.
+- [ ] A backup/rollback plan exists before replacing the existing live site.
 - [ ] Final payment is verified for a real paid job.
-- [ ] Customer explicitly approves launch.
-- [ ] Backup/rollback path is documented before replacing an existing live site.
+- [ ] Customer explicitly approves the launch window.
+- [ ] Post-launch checks are scheduled for forms, redirects, 404s, indexing, analytics and uptime.
 
 Darwin must never treat a demo acceptance or an unverified payment promise as revenue.
 """,
