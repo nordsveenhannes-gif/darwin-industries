@@ -29,7 +29,7 @@ Defaults:
 
 - 6-hour bounded session
 - one cycle per hour
-- 25-model-call local guardrail
+- 36-model-call local guardrail
 - 4 researched prospects per cycle
 - no email sending
 - no cash spending
