@@ -2,8 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from backend.agents.website_studio import FAQItem, ProductCard, WebsiteBuildSpec
-from backend.site_builder import REQUIRED_PAGES, render_site, validate_site
+from backend.agents.website_studio import CollectionSpec, FAQItem, ProductCard, WebsiteBuildSpec
+from backend.site_builder import render_site, validate_site
 
 
 class WebsiteBuilderTests(unittest.TestCase):
@@ -22,24 +22,34 @@ class WebsiteBuilderTests(unittest.TestCase):
                 "Clear product information",
                 "Responsive customer support",
             ],
-            sauna_intro="Explore infrared sauna formats.",
-            ice_bath_intro="Explore handcrafted cold immersion formats.",
-            saunas=[
-                ProductCard(
-                    name="Example Sauna",
-                    eyebrow="Infrared",
-                    description="A representative sauna product.",
-                    details=["Example size", "Example finish"],
-                )
-            ],
-            ice_baths=[
-                ProductCard(
-                    name="Example Ice Bath",
+            collections=[
+                CollectionSpec(
+                    name="Infrared Saunas",
+                    eyebrow="Warmth",
+                    intro="Explore infrared sauna formats.",
+                    items=[
+                        ProductCard(
+                            name="Example Sauna",
+                            eyebrow="Infrared",
+                            description="A representative sauna product.",
+                            details=["Example size", "Example finish"],
+                        )
+                    ],
+                ),
+                CollectionSpec(
+                    name="Ice Baths",
                     eyebrow="Cold immersion",
-                    description="A representative cold immersion product.",
-                    price_label="From £8,000",
-                    details=["Example finish", "Quotation available"],
-                )
+                    intro="Explore handcrafted cold immersion formats.",
+                    items=[
+                        ProductCard(
+                            name="Example Ice Bath",
+                            eyebrow="Cold immersion",
+                            description="A representative cold immersion product.",
+                            price_label="From £8,000",
+                            details=["Example finish", "Quotation available"],
+                        )
+                    ],
+                ),
             ],
             faqs=[
                 FAQItem(question="How do I get pricing?", answer="Submit a project enquiry.")
@@ -55,7 +65,7 @@ class WebsiteBuilderTests(unittest.TestCase):
             render_site(self.sample_spec(), output)
 
             self.assertEqual(validate_site(output), [])
-            for page in REQUIRED_PAGES:
+            for page in ["index.html", "infrared-saunas.html", "ice-baths.html", "about.html", "faq.html", "contact.html"]:
                 self.assertTrue((output / page).exists())
 
             contact = (output / "contact.html").read_text(encoding="utf-8")
@@ -70,7 +80,7 @@ class WebsiteBuilderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "site"
             render_site(self.sample_spec(), output)
-            for page in REQUIRED_PAGES:
+            for page in ["index.html", "infrared-saunas.html", "ice-baths.html", "about.html", "faq.html", "contact.html"]:
                 text = (output / page).read_text(encoding="utf-8")
                 self.assertIn('name="robots" content="noindex,nofollow"', text)
 
