@@ -239,54 +239,65 @@ Moonshot's legacy public Data API at `api.moonshot.cc` is no longer treated as a
 
 ## Website Studio — accepted quotation to staging site
 
-Darwin now has a post-sale website fulfillment path. It is separate from the audit/outreach demo.
+Darwin has a post-sale website fulfillment path that is separate from the audit/outreach demo.
 
-For a safe fake-customer run:
+For the Fire & Ice fake-customer run on Windows, pull the latest repo and launch:
 
-\`\`\`bat
+```bat
+run_fire_ice_demo.bat
+```
+
+The launcher starts Mission Control in a second CMD, opens the dashboard, simulates an accepted quotation, lets the agents research/review/QA the project, builds the staging website, validates it, and opens the finished preview in the default browser. Demo mode never records payment or revenue.
+
+The direct command is:
+
+```bat
 python -m backend.website_job --demo --business-name "Fire & Ice Wellbeing" --website "https://www.fireandicewellbeing.com/"
-\`\`\`
+```
 
-Demo mode:
-- creates a fixed-scope quotation,
-- simulates quote acceptance without recording revenue or payment,
-- has Forge research the customer's first-party site and create a factual build specification,
+Website Studio currently:
+- creates a fixed-scope quotation with deposit, revision, exclusion and ownership terms,
+- blocks real production work before verified deposit,
+- has Forge research the first-party customer site and create a factual structured build specification,
 - has Nova review UX/conversion quality,
-- has Sentinel QA claims, scope, ownership and launch safety,
-- renders a responsive six-page staging site,
-- validates required pages, internal links, form wiring and staging \`noindex\`,
-- starts a local preview at \`http://127.0.0.1:8788\`,
-- provides a working quote-request form backed by Darwin's SQLite database.
+- gives Forge one bounded self-repair if Sentinel flags the first QA pass,
+- has Sentinel QA claims, scope, ownership and launch safeguards,
+- builds a premium responsive lead-generation site with Home, two primary collection/service pages, About, FAQ, Get Pricing, plus a staging privacy notice,
+- reuses source-site imagery in demo mode on a best-effort basis while keeping production asset-rights confirmation separate,
+- validates generated pages, internal links, form wiring, favicon, staging noindex and required assets,
+- provides a functional enquiry form backed by SQLite with validation, consent and a basic spam honeypot,
+- exports a standalone runnable Python website app and Dockerfile under the project deploy folder,
+- supports two included revision rounds and explicit customer staging approval.
 
-The generated project is written under \`builds/<business>-<project-id>/\` and is intentionally gitignored. Mission Control shows the latest website-project status, project events and local staging enquiries.
+Generated project files are written under `builds/<business>-<project-id>/` and are gitignored. Each project contains the quote, build spec, UX review, QA report, customer handoff checklist, staging site and standalone deploy package.
 
-The local staging server is not a public deployment. Darwin must not replace a customer's live site until the customer has approved staging, asset rights are confirmed, real payment requirements are satisfied, and owner-controlled production/domain access is provided securely. Never ask a customer to email passwords or seed phrases.
+The local staging server is intentionally not a public deployment. Darwin must not replace a customer's live site until staging is approved, real payment requirements are satisfied, asset rights are confirmed, and a customer-controlled production hosting/domain target is configured securely. Never ask a customer to email passwords, private keys or seed phrases.
 
-To run Mission Control in a second terminal:
+Mission Control:
 
-\`\`\`bat
+```bat
 python -m backend.dashboard
-\`\`\`
+```
 
-Then open \`http://127.0.0.1:8765\`.
-
+Open `http://127.0.0.1:8765`.
 
 ### Website revisions and customer approval
 
-The quoted package includes two bounded revision rounds. Apply customer feedback with:
+Apply one of the two included customer revision rounds with:
 
-\`\`\`bat
-python -m backend.website_revision --project-id 1 --feedback "Make the sauna page more concise and move delivery details higher." --serve
-\`\`\`
+```bat
+python -m backend.website_revision --project-id 1 --feedback "Make the first product page more concise and move delivery details higher." --serve
+```
 
-Darwin preserves the current staging build when QA fails and refuses a silent third included revision; anything beyond the quoted two rounds should become an explicit change order.
+Darwin preserves the current staging build if QA fails and refuses a silent third included revision; work beyond the quoted two rounds should become an explicit change order.
 
 When the customer approves the current staging build:
 
-\`\`\`bat
+```bat
 python -m backend.website_approval --project-id 1 --approve-staging
-\`\`\`
+```
 
-Approval records the customer decision but does **not** publish the website. For a real commercial job, launch remains gated by verified payment, confirmed asset rights, explicit staging approval, and a customer-controlled production hosting/domain target.
+Approval records the customer decision but does **not** publish the site. For a real commercial project, launch remains gated by verified payment, confirmed asset rights, explicit staging approval and a customer-controlled production target.
 
-In demo mode Darwin may reuse image assets already published on the source website to make the staging preview realistic. That demo reuse is not treated as production rights confirmation. For a real customer, use \`--confirm-asset-rights\` only after the customer has confirmed they control or license the assets.
+In demo mode Darwin may reuse image assets already published on the source website to make the staging preview realistic. That demo reuse is not production rights confirmation. For a real customer, use `--confirm-asset-rights` only after the customer has explicitly confirmed they control or license those assets.
+
