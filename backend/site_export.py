@@ -112,6 +112,11 @@ class Handler(SimpleHTTPRequestHandler):
         interest = str(payload.get("interest") or "").strip()
         message = str(payload.get("message") or "").strip()
         consent = bool(payload.get("consent"))
+        honeypot = str(payload.get("company_website") or "").strip()
+
+        if honeypot:
+            self.json_response(201, {"ok": True})
+            return
 
         if not (2 <= len(name) <= 80):
             self.json_response(400, {"error": "Please enter your name."})
