@@ -2,6 +2,7 @@ import json
 
 from agents import Runner
 
+from backend.agents.contact_finder import PublicBusinessContact, build_contact_finder
 from backend.agents.forge_web import WebsiteAudit, build_field_forge
 from backend.agents.mercury import (
     OutreachDraft,
@@ -10,6 +11,7 @@ from backend.agents.mercury import (
     build_mercury_scorer,
 )
 from backend.agents.sentinel import build_sentinel
+from backend.emailer import is_safe_business_email, minimum_sales_score
 from backend.storage import now_iso, save_event
 
 
@@ -296,3 +298,82 @@ contains no fake urgency or guarantees, includes an easy opt-out, and clearly re
         )
 
     return row["id"], 2
+
+
+def find_public_contact_for_best(conn, run_id: int | None) -> tuple[int | None, int]:
+    row = conn.execute(
+        """
+        SELECT * FROM prospects
+        WHERE status='DRAFT_READY'
+          AND contact_email IS NULL
+          AND COALESCE(sales_score, 0) >= ?
+        ORDER BY sales_score DESC, confidence DESC, id ASC
+        LIMIT 1
+        """,
+        (minimum_sales_score(),),
+    ).fetchone()
+
+    if not row:
+        return None, 0
+
+    prompt = f"""
+Find a safe public business contact email for this exact prospect.
+
+Prospect ID: {row['id']}
+Business: {row['business_name']}
+Official website: {row['website_url']}
+Market: {row['market']}
+Category: {row['category']}
+Research sources: {row['source_urls_json']}
+
+Return only an explicitly published generic role/business email from the official business website.
+Do not guess. Do not return a named person's email. If none is safely available, set eligible=false.
+"""
+    contact = _run(build_contact_finder(), prompt)
+    if not isinstance(contact, PublicBusinessContact):
+        raise RuntimeError("Contact verifier returned an unexpected output.")
+
+    eligible = (
+        contact.prospect_id == row["id"]
+        and contact.eligible
+        and is_safe_business_email(contact.email, row["website_url"])
+        and bool(contact.source_url)
+        and contact.confidence >= 70
+    )
+
+    conn.execute(
+        """
+        UPDATE prospects
+        SET contact_email=?,
+            contact_email_source=?,
+            contact_email_kind=?,
+            contact_confidence=?,
+            status=?,
+            updated_at=?
+        WHERE id=?
+        """,
+        (
+            contact.email.strip().lower() if eligible and contact.email else None,
+            contact.source_url if eligible else contact.source_url,
+            "PUBLIC_ROLE" if eligible else None,
+            contact.confidence,
+            "CONTACT_READY" if eligible else "CONTACT_UNAVAILABLE",
+            now_iso(),
+            row["id"],
+        ),
+    )
+    conn.commit()
+
+    if run_id is not None:
+        save_event(
+            conn,
+            run_id,
+            "CONTACT_VERIFIED" if eligible else "CONTACT_UNAVAILABLE",
+            (
+                f"Public role contact verified for prospect #{row['id']}."
+                if eligible
+                else f"No safe public role contact verified for prospect #{row['id']}."
+            ),
+        )
+
+    return row["id"], 1
