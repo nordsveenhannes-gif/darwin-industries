@@ -134,7 +134,26 @@ DARWIN_STOCK_PAPER_NOTIONAL_USD=100
 DARWIN_STOCK_PAPER_DAILY_STOP_USD=20
 ```
 
-Mission Control shows open paper positions, realized paper P&L, latest Raptor/Apex signals, and all three trading agents. Paper P&L is tracked separately from operating revenue.
+Mission Control shows open simulated positions, realized net P&L, estimated fees, win rate, profit factor, max drawdown, latest Raptor/Apex signals, and all three trading agents. Paper P&L is tracked separately from operating revenue. The simulation uses observed market prices plus configurable fake slippage and costs rather than trusting the agent's proposed fill price.
+
+### Trader scoreboard and live-trading graduation
+
+You can read the zero-model-call scoreboard at any time:
+
+```bat
+python -m backend.trading_stats
+```
+
+Each trader is tracked separately for signals, BUY/WAIT decisions, closed trades, wins/losses, win rate, gross P&L, estimated fees, net P&L, profit factor, average trade, best/worst trade, and maximum drawdown. Fewer than 20 closed trades is labelled `INSUFFICIENT_SAMPLE`; after that Darwin can label a profitable, profit-factor >= 1.20 run as `PROMISING`. This label never unlocks real money automatically.
+
+The intended graduation path is:
+
+```text
+live market data -> fake trades -> measured statistics -> owner review
+-> isolated low-balance signer -> hard deterministic limits -> live transactions
+```
+
+For a future Moonshot-wallet connection, never paste or commit the Moonshot secret phrase. The signer must be configured locally or through a dedicated secrets/signing system, and the live wallet should have a deliberately small balance and hard loss limits.
 
 ## Controlled outbound email
 
