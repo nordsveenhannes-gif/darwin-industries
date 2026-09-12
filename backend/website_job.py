@@ -442,10 +442,12 @@ Do not fix criticism by inventing claims or customer facts.
         _set_agent(conn, "Nova", "READY", f"Website UX reviewed: {ux.score}/100")
 
         _set_agent(conn, "Sentinel", "WORKING", "QA checking website scope, claims and customer trust")
-        qa = str(
-            Runner.run_sync(
-                build_sentinel(),
-                f"""
+
+        def run_project_qa(current_spec: WebsiteBuildSpec, current_ux: UXReview) -> str:
+            return str(
+                Runner.run_sync(
+                    build_sentinel(),
+                    f"""
 QA this accepted website staging project.
 
 CUSTOMER: {args.business_name}
@@ -455,10 +457,10 @@ QUOTE:
 {quote}
 
 BUILD SPEC:
-{spec.model_dump_json(indent=2)}
+{current_spec.model_dump_json(indent=2)}
 
 NOVA REVIEW:
-{ux.model_dump_json(indent=2)}
+{current_ux.model_dump_json(indent=2)}
 
 Return exactly:
 STATUS: PASS
@@ -482,14 +484,65 @@ PASS only when:
 - credentials are not requested insecurely,
 - a demo is not represented as real payment or revenue.
 """,
-            ).final_output
-        ).strip()
+                ).final_output
+            ).strip()
+
+        qa = run_project_qa(spec, ux)
+
+        if not _qa_passed(qa):
+            _event(
+                conn,
+                project_id,
+                "Sentinel",
+                "QA_REPAIR_REQUESTED",
+                "Sentinel flagged the first draft. Darwin is attempting one bounded self-repair before blocking the project.\n" + qa,
+            )
+            _set_agent(conn, "Forge", "WORKING", "Repairing website specification after Sentinel QA")
+            try:
+                repaired = Runner.run_sync(
+                    build_website_forge(),
+                    f"""
+Repair this website specification using Sentinel's QA report.
+
+Customer: {args.business_name}
+Source website: {args.website}
+
+CURRENT SPEC:
+{spec.model_dump_json(indent=2)}
+
+SENTINEL QA:
+{qa}
+
+Return a complete replacement WebsiteBuildSpec.
+Correct only issues identified by QA. Re-check first-party facts where needed.
+Never invent a claim to make QA pass.
+""",
+                ).final_output
+                if isinstance(repaired, WebsiteBuildSpec):
+                    spec = repaired
+                    _event(
+                        conn,
+                        project_id,
+                        "Forge",
+                        "QA_REPAIR_COMPLETE",
+                        "Forge applied Sentinel's required changes and returned the project for a second QA pass.",
+                    )
+            except Exception as repair_exc:
+                _event(
+                    conn,
+                    project_id,
+                    "Forge",
+                    "QA_REPAIR_ERROR",
+                    f"Automatic QA repair failed: {str(repair_exc)[:1000]}",
+                )
+
+            qa = run_project_qa(spec, ux)
 
         if not _qa_passed(qa):
             _update(conn, project_id, status="QA_FLAGGED", qa_report=qa)
             _event(conn, project_id, "Sentinel", "QA_FLAGGED", qa)
-            _set_agent(conn, "Sentinel", "READY", "Website project blocked by QA")
-            print("\nSentinel blocked the build. See Mission Control / project QA report.")
+            _set_agent(conn, "Sentinel", "READY", "Website project blocked after two QA passes")
+            print("\nSentinel blocked the build after the bounded self-repair attempt.")
             conn.close()
             return
 
