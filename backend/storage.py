@@ -91,6 +91,34 @@ def init_db(conn: sqlite3.Connection) -> None:
             estimated_calls_used INTEGER NOT NULL DEFAULT 0,
             note TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS outbound_emails (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            prospect_id INTEGER,
+            provider TEXT NOT NULL,
+            provider_message_id TEXT,
+            from_email TEXT NOT NULL,
+            to_email TEXT NOT NULL,
+            subject TEXT NOT NULL,
+            body_text TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            sent_at TEXT,
+            last_error TEXT,
+            FOREIGN KEY(prospect_id) REFERENCES prospects(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS suppressions (
+            email TEXT PRIMARY KEY,
+            reason TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_outbound_email_status
+            ON outbound_emails(status, sent_at);
+
+        CREATE INDEX IF NOT EXISTS idx_outbound_email_recipient
+            ON outbound_emails(to_email, status);
         """
     )
 
@@ -108,6 +136,10 @@ def init_db(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "prospects", "outreach_subject", "TEXT")
     _ensure_column(conn, "prospects", "outreach_body", "TEXT")
     _ensure_column(conn, "prospects", "outreach_qa", "TEXT")
+    _ensure_column(conn, "prospects", "contact_email", "TEXT")
+    _ensure_column(conn, "prospects", "contact_email_source", "TEXT")
+    _ensure_column(conn, "prospects", "contact_email_kind", "TEXT")
+    _ensure_column(conn, "prospects", "contact_confidence", "INTEGER")
     _ensure_column(conn, "prospects", "updated_at", "TEXT")
     conn.commit()
 
