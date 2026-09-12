@@ -15,7 +15,7 @@ def _profit_factor(gross_profit: float, gross_loss: float):
     if gross_loss > 0:
         return gross_profit / gross_loss
     if gross_profit > 0:
-        return math.inf
+        return None
     return 0.0
 
 
@@ -96,7 +96,7 @@ def main() -> None:
 
     for stats in all_trader_stats(conn):
         pf = stats["profit_factor"]
-        pf_text = "inf" if math.isinf(pf) else f"{pf:.2f}"
+        pf_text = "inf" if pf is None else f"{pf:.2f}"
         print(f"{stats['agent']} — {stats['asset_class']}")
         print(
             f"  signals={stats['signals']} | BUY={stats['buy_signals']} | "
