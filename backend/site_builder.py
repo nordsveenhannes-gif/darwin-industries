@@ -180,19 +180,18 @@ def _layout(
 """
 
 
-def _home(spec: WebsiteBuildSpec, images: list[str] | None = None) -> str:
+def _home(spec: WebsiteBuildSpec, hero_image: str | None = None) -> str:
     trust = "".join(
         f'<div class="trust-item"><span>{i:02d}</span><p>{_e(point)}</p></div>'
         for i, point in enumerate(spec.trust_points[:4], 1)
     )
     entries = _collection_entries(spec)
     first, second = entries[0], entries[1]
-    images = images or []
     hero_style = ""
-    if images:
+    if hero_image:
         hero_style = (
             ' style="background-image:linear-gradient(135deg,rgba(17,16,14,.10),rgba(17,16,14,.50)),'
-            f'url(&quot;{_e(images[0])}&quot;);background-size:cover;background-position:center"'
+            f'url(&quot;{_e(hero_image)}&quot;);background-size:cover;background-position:center"'
         )
     return f"""
 <section class="hero">
@@ -252,10 +251,10 @@ def _home(spec: WebsiteBuildSpec, images: list[str] | None = None) -> str:
 def _collection_page(
     collection: CollectionSpec,
     tone: str,
-    images: list[str] | None = None,
-    image_offset: int = 1,
+    product_images: list[str] | None = None,
+    image_offset: int = 0,
 ) -> str:
-    images = images or []
+    product_images = product_images or []
     return f"""
 <section class="page-hero page-hero-{tone}">
   <p class="eyebrow">{_e(collection.eyebrow)}</p>
@@ -268,7 +267,7 @@ def _collection_page(
     <p class="eyebrow">Collection</p>
     <h2>Explore the options and find the right fit.</h2>
   </div>
-  <div class="product-grid">{_product_cards(collection.items, images, image_offset)}</div>
+  <div class="product-grid">{_product_cards(collection.items, product_images, image_offset)}</div>
 </section>
 <section class="cta-band">
   <div><p class="eyebrow">Need help choosing?</p><h2>Tell us what you need, your location and your preferred timeline.</h2></div>
@@ -530,18 +529,25 @@ def render_site(
     image_files: list[str] | None = None,
     logo_file: str | None = None,
     about_image: str | None = None,
+    hero_image: str | None = None,
+    product_images: list[str] | None = None,
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     assets = output_dir / "assets"
     assets.mkdir(exist_ok=True)
     image_files = image_files or []
+    if hero_image is None and image_files:
+        hero_image = image_files[0]
+    if product_images is None:
+        product_images = image_files[1:] if len(image_files) > 1 else []
+    product_images = product_images or []
 
     entries = _collection_entries(spec)
     pages = {
         "index.html": (
             f"{spec.brand_name}",
             spec.hero_subheading,
-            _home(spec, image_files),
+            _home(spec, hero_image),
         ),
         "about.html": (
             "About",
@@ -577,8 +583,8 @@ def render_site(
             _collection_page(
                 collection,
                 "fire" if index == 1 else "ice",
-                image_files,
-                1 if index == 1 else 4,
+                product_images,
+                0 if index == 1 else len(spec.collections[0].items),
             ),
         )
 
