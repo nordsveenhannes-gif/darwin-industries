@@ -1164,8 +1164,8 @@ def main() -> None:
         description="Run Darwin's experimental trading desk in paper mode."
     )
     parser.add_argument("--hours", type=float, default=6.0)
-    parser.add_argument("--interval-minutes", type=int, default=5)
-    parser.add_argument("--max-model-calls", type=int, default=30)
+    parser.add_argument("--interval-minutes", type=int, default=3)
+    parser.add_argument("--max-model-calls", type=int, default=120)
     args = parser.parse_args()
 
     load_dotenv()
@@ -1178,13 +1178,14 @@ def main() -> None:
     if not os.getenv("OPENAI_API_KEY"):
         raise SystemExit("OPENAI_API_KEY is missing from .env")
 
-    hours = max(0.25, min(args.hours, 12.0))
+    hours = max(0.25, min(args.hours, 6.0))
     interval = max(1, min(args.interval_minutes, 60))
     max_model_calls = max(2, min(args.max_model_calls, 120))
 
     conn = connect()
     init_db(conn)
-    _set_agent(conn, "Raptor", "ON_SHIFT", "Paper-trading Solana meme momentum desk")
+    session_id = _start_trading_session(conn, hours)
+    _set_agent(conn, "Raptor", "ON_SHIFT", "Six-hour adaptive Solana paper-trading shift")
     _set_agent(conn, "Apex", "ON_SHIFT", "Paper-trading intraday equities desk")
     _set_agent(conn, "Circuit", "ON_SHIFT", "Independent paper-trading risk control")
 
@@ -1193,28 +1194,64 @@ def main() -> None:
     cycle = 0
 
     print("\n=== DARWIN TRADING DESK — PAPER MODE ===")
-    print("Raptor: live Solana meme momentum scanner (DEX Screener market data)")
+    print("Raptor: adaptive Solana flow trader (DEX Screener + 1m GeckoTerminal data)")
     print("Apex: intraday equities scanner (Alpaca paper data + owner watchlist)")
     print("Circuit: independent risk gate")
     print("REAL MONEY EXECUTION: DISABLED")
-    print("Fake fills use observed prices plus configurable slippage and fees.")
+    print("Fake fills use observed prices plus configurable route fees/slippage.")
+    print("Raptor uses hard paper tradeability gates + adaptive technical stress 0-4.")
+    print("Shift length is capped at 6 hours; hitting the model budget does NOT stop market observation.")
     print(f"Scan interval: {interval} minute(s)")
     print(f"Model-call guardrail: {max_model_calls}")
     print("Press Ctrl+C to stop safely.\n")
 
     try:
         while datetime.now() < deadline:
-            if model_budget[0] + 2 > max_model_calls:
-                print(f"Model-call guardrail reached: {model_budget[0]}/{max_model_calls}.")
-                break
-
             cycle += 1
-            print(f"--- Trading scan {cycle} ---")
-            _set_agent(conn, "Circuit", "WORKING", "Standing by to risk-review paper setups")
-            _moonshot_cycle(conn, model_budget, max_model_calls)
+            state = _session_state(conn, session_id)
+            print(
+                f"--- Trading scan {cycle} • session {state['realized_r']:+.2f}R "
+                f"• losses {state['consecutive_losses']} ---"
+            )
+
+            _set_agent(conn, "Circuit", "WORKING", "Standing by to risk-review bounded paper setups")
+            opened, stress_level = _moonshot_cycle(
+                conn,
+                model_budget,
+                max_model_calls,
+                session_id=session_id,
+                session_state=state,
+            )
+
+            # Expose strategy stress separately from the simulated personality field.
+            conn.execute(
+                "UPDATE agent_state SET stress=?,updated_at=? WHERE agent='Raptor'",
+                (min(100, stress_level * 20), now_iso()),
+            )
+            conn.commit()
+
+            # Apex shares the six-hour desk shift. If its broker config is absent it simply sleeps.
             _stock_cycle(conn, model_budget, max_model_calls)
             _set_agent(conn, "Circuit", "READY", "Paper risk reviews complete")
-            print(f"Model calls used: {model_budget[0]}/{max_model_calls}")
+
+            refreshed = _session_state(conn, session_id)
+            _update_session_runtime(
+                conn,
+                session_id,
+                cycle=cycle,
+                model_calls=model_budget[0],
+                stress_level=stress_level,
+                defensive_mode=bool(refreshed["defensive_mode"]),
+            )
+
+            print(
+                f"Model calls used: {model_budget[0]}/{max_model_calls} • "
+                f"stress {stress_level}/4 • "
+                f"defensive {'YES' if refreshed['defensive_mode'] else 'NO'} • "
+                f"session {refreshed['realized_r']:+.2f}R"
+            )
+            if model_budget[0] >= max_model_calls:
+                print("Model-call budget exhausted: deterministic scanning/exits continue; no new LLM reviews.")
 
             if datetime.now() >= deadline:
                 break
@@ -1231,9 +1268,14 @@ def main() -> None:
     except KeyboardInterrupt:
         print("\nTrading desk stopped by owner.")
     finally:
-        _set_agent(conn, "Raptor", "OFF_SHIFT", "Paper trading desk stopped")
-        _set_agent(conn, "Apex", "OFF_SHIFT", "Paper trading desk stopped")
-        _set_agent(conn, "Circuit", "OFF_SHIFT", "Paper trading desk stopped")
+        conn.execute(
+            "UPDATE trading_sessions SET status='COMPLETED',ended_at=?,model_calls_used=?,cycles_completed=? WHERE id=?",
+            (now_iso(), model_budget[0], cycle, session_id),
+        )
+        conn.commit()
+        _set_agent(conn, "Raptor", "OFF_SHIFT", "Six-hour paper trading shift stopped")
+        _set_agent(conn, "Apex", "OFF_SHIFT", "Six-hour paper trading shift stopped")
+        _set_agent(conn, "Circuit", "OFF_SHIFT", "Six-hour paper trading shift stopped")
         conn.close()
 
 
