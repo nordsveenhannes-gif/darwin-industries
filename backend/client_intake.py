@@ -1,17 +1,45 @@
 from __future__ import annotations
 
 import html
-import json
+import re
 import threading
 import time
 import webbrowser
+from email import policy
+from email.parser import BytesParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs
 
 from backend.storage import connect, init_db, now_iso
 
 
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+ALLOWED_IMAGE_TYPES = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+}
+UPLOAD_FIELDS = {
+    "logo_files": "logo",
+    "hero_files": "hero",
+    "product_files": "product",
+    "about_files": "about",
+}
+MAX_UPLOAD_BYTES = 5_000_000
+MAX_UPLOAD_FILES = 12
+MAX_FORM_BYTES = 40_000_000
+
+
 INITIAL_QUESTIONS = [
+    {
+        "key": "client_email",
+        "question": "Where should we email the finished proposal and staging review?",
+        "why": "Darwin uses this only for this website project and project follow-up.",
+        "required_for": "STAGING",
+        "input_type": "email",
+        "placeholder": "you@business.com",
+    },
     {
         "key": "primary_goal",
         "question": "What is the main job this website should do?",
@@ -111,8 +139,6 @@ LAUNCH_QUESTIONS = [
 ]
 
 
-
-
 def _seed_questions(project_id: int, questions: list[dict]) -> None:
     conn = connect()
     init_db(conn)
@@ -161,12 +187,127 @@ def answers_for_project(project_id: int) -> dict[str, str]:
     return {row["question_key"]: row["answer"] or "" for row in rows}
 
 
+def assets_for_project(project_id: int) -> list[dict]:
+    conn = connect()
+    init_db(conn)
+    rows = conn.execute(
+        """
+        SELECT category,original_name,stored_path,mime_type,size_bytes
+        FROM website_client_assets
+        WHERE project_id=?
+        ORDER BY CASE category
+            WHEN 'logo' THEN 1
+            WHEN 'hero' THEN 2
+            WHEN 'product' THEN 3
+            WHEN 'about' THEN 4
+            ELSE 9 END, id
+        """,
+        (project_id,),
+    ).fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def _safe_filename(value: str) -> str:
+    stem = re.sub(r"[^a-zA-Z0-9._-]+", "-", Path(value).name).strip("-")
+    return stem[:100] or "image"
+
+
+def _save_uploads(project_id: int, uploads: list[tuple[str, str, str, bytes]]) -> int:
+    if not uploads:
+        return 0
+
+    root = Path("client_uploads") / f"website-{project_id}"
+    root.mkdir(parents=True, exist_ok=True)
+
+    conn = connect()
+    init_db(conn)
+    saved = 0
+    for field_name, filename, mime_type, data in uploads[:MAX_UPLOAD_FILES]:
+        category = UPLOAD_FIELDS.get(field_name)
+        ext = ALLOWED_IMAGE_TYPES.get(mime_type)
+        if not category or not ext or not data:
+            continue
+        if len(data) > MAX_UPLOAD_BYTES:
+            continue
+
+        base = Path(_safe_filename(filename)).stem[:70] or category
+        stored_name = f"{category}-{saved + 1:02d}-{base}{ext}"
+        path = root / stored_name
+        suffix = 2
+        while path.exists():
+            path = root / f"{category}-{saved + 1:02d}-{base}-{suffix}{ext}"
+            suffix += 1
+
+        path.write_bytes(data)
+        conn.execute(
+            """
+            INSERT INTO website_client_assets(
+                project_id,category,original_name,stored_path,mime_type,size_bytes,created_at
+            )
+            VALUES(?,?,?,?,?,?,?)
+            """,
+            (
+                project_id,
+                category,
+                filename[:250],
+                str(path),
+                mime_type,
+                len(data),
+                now_iso(),
+            ),
+        )
+        saved += 1
+    conn.commit()
+    conn.close()
+    return saved
+
+
+def _parse_submission(handler: BaseHTTPRequestHandler, length: int):
+    content_type = handler.headers.get("Content-Type", "")
+    body = handler.rfile.read(length)
+
+    if content_type.lower().startswith("multipart/form-data"):
+        raw = (
+            f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode("utf-8")
+            + body
+        )
+        message = BytesParser(policy=policy.default).parsebytes(raw)
+        fields: dict[str, str] = {}
+        uploads: list[tuple[str, str, str, bytes]] = []
+        for part in message.iter_parts():
+            if part.get_content_disposition() != "form-data":
+                continue
+            field_name = part.get_param("name", header="content-disposition")
+            if not field_name:
+                continue
+            filename = part.get_filename()
+            if filename:
+                uploads.append(
+                    (
+                        str(field_name),
+                        str(filename),
+                        part.get_content_type(),
+                        part.get_payload(decode=True) or b"",
+                    )
+                )
+                continue
+            payload = part.get_payload(decode=True) or b""
+            charset = part.get_content_charset() or "utf-8"
+            fields[str(field_name)] = payload.decode(charset, errors="replace")
+        return fields, uploads
+
+    parsed = parse_qs(body.decode("utf-8"), keep_blank_values=True)
+    return {key: values[0] if values else "" for key, values in parsed.items()}, []
+
+
 def _page(
     project_id: int,
     business_name: str,
     questions: list[dict],
     heading: str,
     existing_answers: dict[str, str] | None = None,
+    show_asset_uploads: bool = False,
 ) -> bytes:
     existing_answers = existing_answers or {}
     fields = []
@@ -176,6 +317,8 @@ def _page(
         why = html.escape(q.get("why", ""))
         placeholder = html.escape(q.get("placeholder", ""), quote=True)
         options = q.get("options") or []
+        input_type = q.get("input_type")
+
         if options:
             selected_value = existing_answers.get(q["key"], "")
             option_html = '<option value="">Choose one</option>' + "".join(
@@ -185,12 +328,19 @@ def _page(
                 for opt in options
             )
             control = f'<select id="{key}" name="{key}" required>{option_html}</select>'
+        elif input_type == "email":
+            existing = html.escape(existing_answers.get(q["key"], ""), quote=True)
+            control = (
+                f'<input id="{key}" name="{key}" type="email" value="{existing}" '
+                f'placeholder="{placeholder}" autocomplete="email" required>'
+            )
         else:
             existing = html.escape(existing_answers.get(q["key"], ""))
             control = (
                 f'<textarea id="{key}" name="{key}" rows="4" required '
                 f'placeholder="{placeholder}">{existing}</textarea>'
             )
+
         fields.append(
             f"""
             <section class="question">
@@ -201,6 +351,43 @@ def _page(
             """
         )
 
+    assets_html = ""
+    if show_asset_uploads:
+        existing_assets = assets_for_project(project_id)
+        current = ""
+        if existing_assets:
+            current = (
+                f'<p class="small good">Already uploaded: {len(existing_assets)} image(s). '
+                "You can add more below.</p>"
+            )
+        assets_html = f"""
+        <section class="uploads">
+          <p class="eyebrow">Your images</p>
+          <h2>Upload the pictures you actually want us to use.</h2>
+          <p>Optional, but recommended. Categorising them helps Darwin place the right image in the right part of the site instead of guessing.</p>
+          {current}
+          <div class="upload-grid">
+            <label class="upload-card">Logo / brand mark
+              <span>PNG, JPG or WebP</span>
+              <input type="file" name="logo_files" accept="image/png,image/jpeg,image/webp">
+            </label>
+            <label class="upload-card">Hero / homepage
+              <span>Wide lifestyle or flagship image</span>
+              <input type="file" name="hero_files" accept="image/png,image/jpeg,image/webp" multiple>
+            </label>
+            <label class="upload-card">Products / services
+              <span>Photos that belong on product or service cards</span>
+              <input type="file" name="product_files" accept="image/png,image/jpeg,image/webp" multiple>
+            </label>
+            <label class="upload-card">About / team / location
+              <span>People, showroom, workshop or location photos</span>
+              <input type="file" name="about_files" accept="image/png,image/jpeg,image/webp" multiple>
+            </label>
+          </div>
+          <p class="small">Maximum 5 MB per image. Darwin will prefer your uploaded images over automatically discovered website imagery.</p>
+        </section>
+        """
+
     body = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -210,25 +397,29 @@ def _page(
 <style>
 :root{{--ink:#171512;--paper:#f4f0e8;--card:#fff;--muted:#6a655d;--line:#d9d1c5;--accent:#1f4c5b}}
 *{{box-sizing:border-box}}body{{margin:0;background:var(--paper);color:var(--ink);font:16px/1.55 system-ui,-apple-system,Segoe UI,sans-serif}}
-main{{width:min(860px,calc(100% - 32px));margin:56px auto}}.eyebrow{{text-transform:uppercase;letter-spacing:.18em;font-size:11px;font-weight:800;color:var(--muted)}}
-h1{{font:400 clamp(40px,7vw,72px)/.98 Georgia,serif;letter-spacing:-.04em;margin:10px 0 18px}}.intro{{font-size:19px;color:#514b43;max-width:720px}}
+main{{width:min(900px,calc(100% - 32px));margin:56px auto}}.eyebrow{{text-transform:uppercase;letter-spacing:.18em;font-size:11px;font-weight:800;color:var(--muted)}}
+h1{{font:400 clamp(40px,7vw,72px)/.98 Georgia,serif;letter-spacing:-.04em;margin:10px 0 18px}}h2{{font:400 32px/1.05 Georgia,serif;margin:8px 0 12px}}.intro{{font-size:19px;color:#514b43;max-width:720px}}
 .notice{{background:#171512;color:#fff;border-radius:18px;padding:18px 20px;margin:30px 0;font-size:13px}}form{{background:var(--card);border:1px solid var(--line);border-radius:24px;padding:clamp(22px,5vw,48px);box-shadow:0 24px 70px rgba(23,21,18,.08)}}
-.question{{padding:0 0 30px;margin-bottom:30px;border-bottom:1px solid #eee8df}}.question:last-of-type{{border-bottom:0}}label{{display:block;font:400 25px/1.15 Georgia,serif;margin-bottom:8px}}
-.question p{{margin:0 0 14px;color:var(--muted);font-size:13px}}textarea,select{{width:100%;resize:vertical;border:1px solid #cfc7bb;background:#fbfaf7;border-radius:12px;padding:14px 15px;color:var(--ink);font:inherit}}
-textarea:focus,select:focus{{outline:2px solid #6e98a4;outline-offset:2px}}button{{border:0;border-radius:999px;background:var(--ink);color:white;padding:14px 24px;font-weight:800;cursor:pointer}}
-.small{{font-size:12px;color:var(--muted);margin-top:14px}}
+.question{{padding:0 0 30px;margin-bottom:30px;border-bottom:1px solid #eee8df}}.question:last-of-type{{border-bottom:0}}label{{display:block;font:400 24px/1.15 Georgia,serif;margin-bottom:8px}}
+.question p,.uploads>p{{margin:0 0 14px;color:var(--muted);font-size:13px}}textarea,select,input[type=email]{{width:100%;border:1px solid #cfc7bb;background:#fbfaf7;border-radius:12px;padding:14px 15px;color:var(--ink);font:inherit}}
+textarea{{resize:vertical}}textarea:focus,select:focus,input:focus{{outline:2px solid #6e98a4;outline-offset:2px}}
+.uploads{{margin:10px 0 34px;padding:28px;border-radius:18px;background:#f7f3ec;border:1px solid #e3dbcf}}.upload-grid{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:18px}}
+.upload-card{{font:700 14px/1.3 system-ui;padding:16px;background:#fff;border:1px solid #ddd4c8;border-radius:14px;cursor:pointer}}.upload-card span{{display:block;color:var(--muted);font-size:11px;font-weight:500;margin:5px 0 12px}}.upload-card input{{width:100%;font:12px system-ui}}
+button{{border:0;border-radius:999px;background:var(--ink);color:white;padding:14px 24px;font-weight:800;cursor:pointer}}.small{{font-size:12px;color:var(--muted);margin-top:14px}}.good{{color:#285e48!important}}
+@media(max-width:700px){{.upload-grid{{grid-template-columns:1fr}}}}
 </style>
 </head>
 <body>
 <main>
 <p class="eyebrow">Darwin Industries · Client onboarding</p>
 <h1>{html.escape(heading)}</h1>
-<p class="intro">Project: <strong>{html.escape(business_name)}</strong>. These are the same kinds of questions a web agency asks before committing design and content decisions.</p>
-<div class="notice">Do not enter passwords, API keys, card details or domain credentials here. Those are handled separately through secure owner-controlled access when a real project reaches launch.</div>
-<form method="post" action="/submit">
+<p class="intro">Project: <strong>{html.escape(business_name)}</strong>. Your answers become the working brief for the design team.</p>
+<div class="notice">Do not enter passwords, API keys, card details or domain credentials here. Those are handled separately through secure owner-controlled access if the project reaches launch.</div>
+<form method="post" action="/submit" enctype="multipart/form-data">
 {''.join(fields)}
-<button type="submit">Send answers and continue the build</button>
-<p class="small">Darwin will save these answers to the project record, close this questionnaire and continue the staging build automatically.</p>
+{assets_html}
+<button type="submit">Send brief and start the build</button>
+<p class="small">After this, Darwin starts the design work. If the project is deliverable within the agreed scope, the next client-facing message should be the finished proposal/staging review — not another copy of this form.</p>
 </form>
 </main>
 </body></html>"""
@@ -243,8 +434,10 @@ def collect_client_answers(
     heading: str = "Before we design, we need your brief.",
     open_browser: bool = True,
 ) -> dict[str, str]:
+    is_initial = questions is None
     questions = questions or INITIAL_QUESTIONS
     _seed_questions(project_id, questions)
+
     existing_answers = answers_for_project(project_id)
     question_keys = {q["key"] for q in questions}
     already_answered = {
@@ -252,6 +445,7 @@ def collect_client_answers(
     }
     if len(already_answered) == len(question_keys):
         return already_answered
+
     done = threading.Event()
 
     class Handler(BaseHTTPRequestHandler):
@@ -266,6 +460,7 @@ def collect_client_answers(
                 questions,
                 heading,
                 existing_answers=answers_for_project(project_id),
+                show_asset_uploads=is_initial,
             )
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -279,26 +474,31 @@ def collect_client_answers(
                 self.send_response(404)
                 self.end_headers()
                 return
+
             try:
                 length = int(self.headers.get("Content-Length", "0"))
             except ValueError:
                 length = 0
-            if length <= 0 or length > 100000:
+            if length <= 0 or length > MAX_FORM_BYTES:
                 self.send_response(400)
                 self.end_headers()
                 return
-            form = parse_qs(self.rfile.read(length).decode("utf-8"), keep_blank_values=True)
+
+            fields, uploads = _parse_submission(self, length)
             missing = []
-            answers = {}
+            answers: dict[str, str] = {}
             for q in questions:
-                answer = (form.get(q["key"], [""])[0] or "").strip()
+                answer = (fields.get(q["key"]) or "").strip()
                 if not answer:
                     missing.append(q["question"])
+                if q.get("input_type") == "email" and answer and not EMAIL_RE.match(answer):
+                    missing.append("a valid project email address")
                 answers[q["key"]] = answer
+
             if missing:
                 payload = (
-                    "<h1>Please answer every required question.</h1>"
-                    "<p>Use your browser Back button and complete the missing fields.</p>"
+                    "<h1>Please complete every required field.</h1>"
+                    "<p>Use your browser Back button and complete the missing or invalid fields.</p>"
                 ).encode("utf-8")
                 self.send_response(400)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -306,6 +506,8 @@ def collect_client_answers(
                 self.end_headers()
                 self.wfile.write(payload)
                 return
+
+            saved_assets = _save_uploads(project_id, uploads) if is_initial else 0
 
             conn = connect()
             init_db(conn)
@@ -318,19 +520,33 @@ def collect_client_answers(
                     """,
                     (answers[q["key"]], now_iso(), project_id, q["key"]),
                 )
-            conn.execute(
-                "UPDATE website_projects SET status='CLIENT_BRIEF_COMPLETE',updated_at=? WHERE id=?",
-                (now_iso(), project_id),
-            )
+
+            if "client_email" in answers:
+                conn.execute(
+                    "UPDATE website_projects SET customer_email=?,status='CLIENT_BRIEF_COMPLETE',updated_at=? WHERE id=?",
+                    (answers["client_email"], now_iso(), project_id),
+                )
+            else:
+                conn.execute(
+                    "UPDATE website_projects SET status='CLIENT_BRIEF_COMPLETE',updated_at=? WHERE id=?",
+                    (now_iso(), project_id),
+                )
             conn.commit()
             conn.close()
 
+            upload_note = (
+                f"<p>We received {saved_assets} client image(s) and will prioritise them in the design.</p>"
+                if saved_assets
+                else ""
+            )
             payload = f"""<!doctype html><html><head><meta charset="utf-8"><style>
 body{{font-family:system-ui;background:#f4f0e8;color:#171512;display:grid;place-items:center;min-height:90vh}}
-div{{max-width:620px;background:white;padding:42px;border-radius:24px}}h1{{font-family:Georgia,serif;font-size:42px}}
-</style></head><body><div><h1>Thanks — Darwin has the brief.</h1>
-<p>The agents are checking your answers now. You can close this tab and watch Mission Control.</p>
-<p style="color:#6a655d;font-size:13px">If Darwin finds one specific decision it cannot safely infer, it may ask a shorter follow-up. It will not ask you to refill this brief.</p></div></body></html>""".encode("utf-8")
+div{{max-width:620px;background:white;padding:42px;border-radius:24px}}h1{{font-family:Georgia,serif;font-size:42px}}p{{line-height:1.6;color:#514b43}}
+</style></head><body><div><h1>Thanks — we have your brief.</h1>
+<p>Our design team is starting the website concept now.</p>
+{upload_note}
+<p>We’ll email the finished proposal and review details to the address you supplied when the staging concept is ready.</p>
+</div></body></html>""".encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(payload)))
@@ -349,7 +565,7 @@ div{{max-width:620px;background:white;padding:42px;border-radius:24px}}h1{{font-
     actual_port = int(server.server_port)
     print("\n=== CLIENT WEBSITE QUESTIONNAIRE ===")
     print(f"Open: http://127.0.0.1:{actual_port}")
-    print("Darwin is waiting for the customer's answers before it commits the staging design.\n")
+    print("Darwin is waiting for the customer's brief before starting the design.\n")
 
     if open_browser:
         threading.Timer(
