@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 from pathlib import Path
 
 from agents import Runner
@@ -23,8 +24,9 @@ from backend.agents.website_studio import (
 from backend.site_builder import render_site, slugify, validate_site
 from backend.site_export import export_deployment_package
 from backend.reference_specs import fire_ice_reference_spec
-from backend.client_intake import collect_client_answers, seed_launch_questions
+from backend.client_intake import assets_for_project, collect_client_answers, seed_launch_questions
 from backend.site_server import serve_site
+from backend.website_delivery import send_website_ready_email
 from backend.storage import connect, init_db, now_iso
 
 
@@ -65,26 +67,52 @@ def _qa_passed(text: str) -> bool:
     return "STATUS: PASS" in text.upper()
 
 
+def _prepare_client_assets(project_id: int, site_dir: Path) -> dict[str, list[str]]:
+    result = {"logo": [], "hero": [], "product": [], "about": []}
+    rows = assets_for_project(project_id)
+    if not rows:
+        return result
+
+    target = site_dir / "assets"
+    target.mkdir(parents=True, exist_ok=True)
+
+    for index, row in enumerate(rows, 1):
+        source = Path(row["stored_path"])
+        category = row["category"]
+        if category not in result or not source.exists():
+            continue
+        suffix = source.suffix.lower() or ".jpg"
+        filename = f"client-{category}-{index:02d}{suffix}"
+        destination = target / filename
+        shutil.copy2(source, destination)
+        result[category].append(f"assets/{filename}")
+    return result
+
+
 def _quote_text(
     business_name: str,
     source_website: str,
     price: float,
+    monthly_price: float,
     currency: str,
 ) -> str:
-    symbol = "£" if currency.upper() == "GBP" else f"{currency.upper()} "
+    symbol = "$" if currency.upper() == "USD" else f"{currency.upper()} "
     price_text = f"{symbol}{price:,.0f}"
-    deposit = price / 2
-    deposit_text = f"{symbol}{deposit:,.0f}"
+    monthly_text = f"{symbol}{monthly_price:,.0f}"
     return f"""# Website Rebuild Quotation — {business_name}
 
 Source website: {source_website}
 
-## Fixed project price
-**{price_text} total**
+## Price
+**{price_text} one-time website build**
+**{monthly_text}/month hosting & care after launch**
 
 Payment structure for a real customer:
-- **50% ({deposit_text})** after quote acceptance and before production work begins.
-- **50% ({deposit_text})** after staging approval and before public launch.
+- The **{price_text} build fee is paid before production work begins**.
+- The monthly care plan starts only after the website is launched.
+- The care plan is month-to-month and can be cancelled; the customer keeps the website files and domain control.
+
+Monthly care includes hosting, SSL, backups, uptime monitoring, and one small content/update request per month (up to roughly 30 minutes). Larger work is quoted before Darwin starts it.
 
 A Darwin demo never counts the simulated acceptance above as revenue or payment.
 
@@ -197,8 +225,9 @@ def main() -> None:
     parser.add_argument("--business-name", required=True)
     parser.add_argument("--website", required=True)
     parser.add_argument("--customer-email", default="demo.customer@example.com")
-    parser.add_argument("--price", type=float, default=1500.0)
-    parser.add_argument("--currency", default="GBP")
+    parser.add_argument("--price", type=float, default=179.0)
+    parser.add_argument("--monthly", type=float, default=39.0)
+    parser.add_argument("--currency", default="USD")
     parser.add_argument(
         "--demo",
         action="store_true",
@@ -231,22 +260,23 @@ def main() -> None:
     if not os.getenv("OPENAI_API_KEY"):
         raise SystemExit("OPENAI_API_KEY is missing from .env")
 
-    price = max(100.0, min(float(args.price), 100000.0))
-    currency = args.currency.strip().upper()[:8] or "GBP"
+    price = max(150.0, min(float(args.price), 200.0))
+    monthly_price = max(15.0, min(float(args.monthly), 99.0))
+    currency = args.currency.strip().upper()[:8] or "USD"
     mode = "DEMO" if args.demo else "CUSTOMER"
     accepted = args.demo or args.accept_quote
 
     conn = connect()
     init_db(conn)
 
-    quote = _quote_text(args.business_name, args.website, price, currency)
+    quote = _quote_text(args.business_name, args.website, price, monthly_price, currency)
     cur = conn.execute(
         """
         INSERT INTO website_projects(
             business_name, source_website, customer_email, mode, status,
-            quoted_price, currency, deposit_percent, quote_text, created_at, updated_at
+            quoted_price, monthly_price, currency, deposit_percent, quote_text, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, 'QUOTED', ?, ?, 50, ?, ?, ?)
+        VALUES (?, ?, ?, ?, 'QUOTED', ?, ?, ?, 100, ?, ?, ?)
         """,
         (
             args.business_name,
@@ -254,6 +284,7 @@ def main() -> None:
             args.customer_email,
             mode,
             price,
+            monthly_price,
             currency,
             quote,
             now_iso(),
@@ -293,7 +324,7 @@ def main() -> None:
     print(f"\n=== DARWIN WEBSITE STUDIO — PROJECT #{project_id} ===")
     print(f"Customer: {args.business_name}")
     print(f"Source: {args.website}")
-    print(f"Quote: {currency} {price:,.0f}")
+    print(f"Quote: {currency} {price:,.0f} + {currency} {monthly_price:,.0f}/month")
     print(f"Mode: {mode}")
 
     if not accepted:
@@ -939,20 +970,51 @@ Rules:
         _update(conn, project_id, status="RENDERING_STAGING")
         print("Staging QA passed. Midas is rendering and validating the website.")
         _set_agent(conn, "Midas", "WORKING", "Rendering reusable premium website system")
-        image_files = []
-        if args.demo or args.confirm_asset_rights:
-            image_files = collect_source_images(args.website, site_dir / "assets", max_images=8)
+        client_assets = _prepare_client_assets(project_id, site_dir)
+        has_client_images = any(client_assets.values())
+
+        hero_image = client_assets["hero"][0] if client_assets["hero"] else None
+        product_images = list(client_assets["product"])
+        about_image = client_assets["about"][0] if client_assets["about"] else None
+        logo_file = client_assets["logo"][0] if client_assets["logo"] else None
+
+        if has_client_images:
+            _event(
+                conn,
+                project_id,
+                "Midas",
+                "CLIENT_ASSETS_USED",
+                (
+                    f"Using client-uploaded assets: logo={len(client_assets['logo'])}, "
+                    f"hero={len(client_assets['hero'])}, product={len(client_assets['product'])}, "
+                    f"about={len(client_assets['about'])}. Client images take priority over scraped imagery."
+                ),
+            )
+        elif args.demo or args.confirm_asset_rights:
+            # A single first-party social/hero image is safer than guessing which scraped image
+            # belongs to which product. Product cards stay intentionally abstract until the client
+            # supplies categorized photography.
+            source_images = collect_source_images(args.website, site_dir / "assets", max_images=1)
+            hero_image = source_images[0] if source_images else None
             _event(
                 conn,
                 project_id,
                 "Midas",
                 "SOURCE_ASSETS_COLLECTED",
                 (
-                    f"Collected {len(image_files)} public source-site image asset(s) for staging reuse. "
-                    "Demo reuse is not a substitute for production asset-rights confirmation."
+                    f"Collected {len(source_images)} source-site hero candidate(s). "
+                    "Darwin did not guess product-photo placement without client-provided categories."
                 ),
             )
-        render_site(spec, site_dir, image_files=image_files)
+
+        render_site(
+            spec,
+            site_dir,
+            logo_file=logo_file,
+            about_image=about_image,
+            hero_image=hero_image,
+            product_images=product_images,
+        )
         errors = validate_site(site_dir)
         if errors:
             raise RuntimeError("Static website validation failed: " + " | ".join(errors))
@@ -987,7 +1049,61 @@ Rules:
         )
         _set_agent(conn, "Midas", "READY", "Premium staging website rendered and validated")
 
-        _set_agent(conn, "Ledger", "READY", "Demo project built; no real payment counted")
+        project_row = conn.execute(
+            "SELECT customer_email FROM website_projects WHERE id=?",
+            (project_id,),
+        ).fetchone()
+        client_email = (project_row["customer_email"] or "").strip() if project_row else ""
+        public_preview = (
+            preview_url
+            if args.demo
+            else os.getenv("DARWIN_PUBLIC_STAGING_URL", "").strip() or None
+        )
+
+        if client_email:
+            _set_agent(conn, "Mercury", "WORKING", f"Emailing finished website proposal to {client_email}")
+            try:
+                provider_id = send_website_ready_email(
+                    to_email=client_email,
+                    business_name=args.business_name,
+                    build_price_usd=price,
+                    monthly_price_usd=monthly_price,
+                    preview_url=public_preview,
+                )
+                _update(
+                    conn,
+                    project_id,
+                    delivery_email_status="SENT",
+                    delivery_email_to=client_email,
+                    delivery_email_provider_id=provider_id,
+                )
+                _event(
+                    conn,
+                    project_id,
+                    "Mercury",
+                    "STAGING_EMAIL_SENT",
+                    f"Finished proposal email sent to {client_email}.",
+                )
+                _set_agent(conn, "Mercury", "READY", "Finished website proposal emailed to client")
+                print(f"Mercury emailed the finished proposal to {client_email}.")
+            except Exception as email_exc:
+                _update(
+                    conn,
+                    project_id,
+                    delivery_email_status="FAILED",
+                    delivery_email_to=client_email,
+                )
+                _event(
+                    conn,
+                    project_id,
+                    "Mercury",
+                    "STAGING_EMAIL_FAILED",
+                    str(email_exc)[:1000],
+                )
+                _set_agent(conn, "Mercury", "READY", "Website delivery email failed; staging remains ready")
+                print("Website built successfully, but the client delivery email failed:", email_exc)
+
+        _set_agent(conn, "Ledger", "READY", "Website project built; no unverified revenue counted")
         print("\nBuild validation: PASS")
         print(f"Project files: {project_root}")
         print(f"Staging site: {site_dir}")
