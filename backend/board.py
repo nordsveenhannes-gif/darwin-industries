@@ -5,7 +5,7 @@ def main() -> None:
     conn = connect()
     init_db(conn)
 
-    print("\n=== DARWIN BOARD / DEPARTMENT REPORTS ===\n")
+    print("\n=== HOSKO'S SHADY SHENANIGANS — BOARD / DEPARTMENT REPORTS ===\n")
 
     agents = ["Atlas", "Ledger", "Nova", "Freya", "Midas", "Satoshi"]
     found = False
