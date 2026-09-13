@@ -266,6 +266,18 @@ def init_db(conn: sqlite3.Connection) -> None:
             FOREIGN KEY(project_id) REFERENCES website_projects(id)
         );
 
+        CREATE TABLE IF NOT EXISTS website_client_assets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL,
+            category TEXT NOT NULL,
+            original_name TEXT NOT NULL,
+            stored_path TEXT NOT NULL,
+            mime_type TEXT NOT NULL,
+            size_bytes INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(project_id) REFERENCES website_projects(id)
+        );
+
         CREATE TABLE IF NOT EXISTS website_client_questions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             project_id INTEGER NOT NULL,
@@ -289,6 +301,9 @@ def init_db(conn: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_website_leads_project
             ON website_leads(project_id, id);
+
+        CREATE INDEX IF NOT EXISTS idx_website_client_assets
+            ON website_client_assets(project_id, category, id);
 
         CREATE INDEX IF NOT EXISTS idx_website_client_questions
             ON website_client_questions(project_id, status, id);
@@ -342,6 +357,11 @@ def init_db(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "website_projects", "launch_approved", "INTEGER NOT NULL DEFAULT 0")
     _ensure_column(conn, "website_projects", "asset_rights_confirmed", "INTEGER NOT NULL DEFAULT 0")
     _ensure_column(conn, "website_projects", "payment_verified", "INTEGER NOT NULL DEFAULT 0")
+
+    _ensure_column(conn, "website_projects", "monthly_price", "REAL NOT NULL DEFAULT 0")
+    _ensure_column(conn, "website_projects", "delivery_email_status", "TEXT")
+    _ensure_column(conn, "website_projects", "delivery_email_to", "TEXT")
+    _ensure_column(conn, "website_projects", "delivery_email_provider_id", "TEXT")
 
     roster = [
         ("Atlas", "CEO / Capital Allocation"),
