@@ -3,3 +3,47 @@ ACTIVE_SPRITE_B64 = "UklGRsAQAABXRUJQVlA4ILQQAAAQSACdASoIAigAPrlOn0wnJCKiqxadCOA
 SPRITE_NAMES = ["Atlas","Mercury","Forge","Freya","Nova","Satoshi","Midas","Oracle","Ledger","Sentinel","Raptor","Apex","Circuit"]
 SPRITE_TILE = 40
 SPRITE_WIDTH = 520
+
+
+from functools import lru_cache
+from io import BytesIO
+import base64
+
+from PIL import Image
+
+
+@lru_cache(maxsize=64)
+def agent_asset(name: str, working: bool, size: int = 110) -> tuple[bytes, str]:
+    """Return owner-supplied character art as still PNG or true animated GIF."""
+    try:
+        index = SPRITE_NAMES.index(name)
+    except ValueError:
+        index = 0
+
+    def frame(sheet_b64: str) -> Image.Image:
+        raw = base64.b64decode(sheet_b64)
+        sheet = Image.open(BytesIO(raw)).convert("RGBA")
+        left = index * SPRITE_TILE
+        tile = sheet.crop((left, 0, left + SPRITE_TILE, SPRITE_TILE))
+        return tile.resize((size, size), Image.Resampling.NEAREST)
+
+    idle = frame(IDLE_SPRITE_B64)
+    if not working:
+        out = BytesIO()
+        idle.save(out, format="PNG", optimize=True)
+        return out.getvalue(), "image/png"
+
+    active = frame(ACTIVE_SPRITE_B64)
+    frames = [idle, active, idle, active]
+    out = BytesIO()
+    frames[0].save(
+        out,
+        format="GIF",
+        save_all=True,
+        append_images=frames[1:],
+        duration=[520, 420, 520, 420],
+        loop=0,
+        disposal=2,
+        optimize=False,
+    )
+    return out.getvalue(), "image/gif"
