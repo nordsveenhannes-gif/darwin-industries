@@ -201,9 +201,9 @@ invented claims/testimonials/results, and does not weaken customer ownership or 
             site_dir,
             image_files=legacy_images,
             logo_file=f"assets/{logo_paths[0].name}" if logo_paths else None,
-            hero_image=f"assets/{hero_paths[0].name}" if hero_paths else None,
+            hero_images=[f"assets/{p.name}" for p in hero_paths],
             product_images=[f"assets/{p.name}" for p in product_paths],
-            about_image=f"assets/{about_paths[0].name}" if about_paths else None,
+            about_images=[f"assets/{p.name}" for p in about_paths],
         )
         errors = validate_site(site_dir)
         if errors:
