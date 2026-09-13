@@ -4,7 +4,7 @@ cd /d "%~dp0"
 
 echo.
 echo ============================================
-echo  DARWIN INDUSTRIES - 6 HOUR PAPER SHIFT
+echo  HOSKO'S SHADY SHENANIGANS - 6 HOUR PAPER SHIFT
 echo ============================================
 echo.
 echo Raptor: adaptive Solana meme trading (paper only)
@@ -28,7 +28,7 @@ set DARWIN_MEME_SIM_ROUTE_FEE_BPS_PER_SIDE=30
 set DARWIN_MEME_SIM_NETWORK_FEE_USD_ROUND_TRIP=0.02
 set DARWIN_MEME_SIM_SLIPPAGE_BPS=35
 
-start "Darwin Mission Control" /D "%~dp0" cmd /k python -m backend.dashboard
+start "Hosko's Shady Shenanigans Mission Control" /D "%~dp0" cmd /k python -m backend.dashboard
 timeout /t 2 /nobreak >nul
 start "" http://127.0.0.1:8765
 
