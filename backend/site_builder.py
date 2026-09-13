@@ -180,19 +180,24 @@ def _layout(
 """
 
 
-def _home(spec: WebsiteBuildSpec, hero_image: str | None = None) -> str:
+def _home(spec: WebsiteBuildSpec, hero_images: list[str] | None = None) -> str:
     trust = "".join(
         f'<div class="trust-item"><span>{i:02d}</span><p>{_e(point)}</p></div>'
         for i, point in enumerate(spec.trust_points[:4], 1)
     )
     entries = _collection_entries(spec)
     first, second = entries[0], entries[1]
+    hero_images = hero_images or []
     hero_style = ""
-    if hero_image:
+    if hero_images:
         hero_style = (
             ' style="background-image:linear-gradient(135deg,rgba(17,16,14,.10),rgba(17,16,14,.50)),'
-            f'url(&quot;{_e(hero_image)}&quot;);background-size:cover;background-position:center"'
+            f'url(&quot;{_e(hero_images[0])}&quot;);background-size:cover;background-position:center"'
         )
+    secondary_hero = "".join(
+        f'<div class="hero-mini" style="background-image:url(&quot;{_e(src)}&quot;)"></div>'
+        for src in hero_images[1:4]
+    )
     return f"""
 <section class="hero">
   <div class="hero-copy reveal">
@@ -214,6 +219,7 @@ def _home(spec: WebsiteBuildSpec, hero_image: str | None = None) -> str:
       <span>{_e(second[0].eyebrow)}</span>
       <strong>{_e(second[0].name)}</strong>
     </div>
+    {f'<div class="hero-mini-grid">{secondary_hero}</div>' if secondary_hero else ''}
   </div>
 </section>
 
@@ -276,14 +282,17 @@ def _collection_page(
 """
 
 
-def _about(spec: WebsiteBuildSpec, about_image: str | None = None) -> str:
+def _about(spec: WebsiteBuildSpec, about_images: list[str] | None = None) -> str:
     trust = "".join(f"<li>{_e(x)}</li>" for x in spec.trust_points)
-    image_block = (
-        f'<div class="about-photo reveal" style="background-image:url(&quot;{_e(about_image)}&quot;)" '
-        f'aria-label="{_e(spec.brand_name)}"></div>'
-        if about_image
-        else ""
-    )
+    about_images = about_images or []
+    image_block = ""
+    if about_images:
+        tiles = "".join(
+            f'<div class="about-photo reveal" style="background-image:url(&quot;{_e(src)}&quot;)" '
+            f'aria-label="{_e(spec.brand_name)} image"></div>'
+            for src in about_images[:4]
+        )
+        image_block = f'<div class="about-gallery">{tiles}</div>'
     return f"""
 <section class="page-hero">
   <p class="eyebrow">About</p>
@@ -449,14 +458,14 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}button,inp
 .hero-copy{max-width:760px}.eyebrow{text-transform:uppercase;letter-spacing:.18em;font-size:11px;font-weight:750;margin:0 0 18px;color:var(--muted)}
 h1,h2,h3,blockquote{font-family:var(--heading-font);font-weight:400;letter-spacing:-.035em;margin-top:0}h1{font-size:clamp(48px,6vw,88px);line-height:.96;margin-bottom:24px}h2{font-size:clamp(34px,4.2vw,58px);line-height:1.04}h3{font-size:32px;line-height:1.05}.lede{font-size:clamp(18px,2vw,24px);max-width:680px;color:#565149}
 .button-row{display:flex;gap:12px;flex-wrap:wrap;margin-top:34px}.button{display:inline-flex;align-items:center;justify-content:center;border-radius:999px;padding:14px 22px;font-size:13px;font-weight:700;transition:.2s transform,.2s background}.button:hover{transform:translateY(-2px)}.button-primary{background:var(--ink);color:#fff}.button-ghost{border:1px solid var(--line)}.button-light{background:#fff;color:var(--dark)}
-.hero-art{position:relative;min-height:500px;border-radius:36px;background:#171512;overflow:hidden;box-shadow:var(--shadow)}.orb{position:absolute;border-radius:50%;filter:blur(3px)}.orb-fire{width:440px;height:440px;background:radial-gradient(circle at 35% 35%,var(--accent) 0,var(--fire) 48%,transparent 72%);left:-90px;top:-40px}.orb-ice{width:480px;height:480px;background:radial-gradient(circle at 50% 40%,var(--accent) 0,var(--ice) 46%,transparent 72%);right:-120px;bottom:-110px}.glass-card{position:absolute;inset:auto 9% 9% 9%;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);backdrop-filter:blur(20px);color:#fff;padding:28px;border-radius:24px;display:grid;grid-template-columns:90px 1fr;gap:10px 20px}.glass-card hr{grid-column:1/-1;width:100%;border:0;border-top:1px solid rgba(255,255,255,.15)}.glass-card span{font-size:10px;letter-spacing:.2em}.glass-card strong{font-family:var(--heading-font);font-size:24px;font-weight:400}
+.hero-art{position:relative;min-height:500px;border-radius:36px;background:#171512;overflow:hidden;box-shadow:var(--shadow)}.hero-mini-grid{position:absolute;left:22px;right:22px;top:22px;display:grid;grid-template-columns:repeat(3,1fr);gap:8px;z-index:3}.hero-mini{height:92px;border-radius:14px;background-size:cover;background-position:center;border:1px solid rgba(255,255,255,.25);box-shadow:0 10px 24px rgba(0,0,0,.22)}.orb{position:absolute;border-radius:50%;filter:blur(3px)}.orb-fire{width:440px;height:440px;background:radial-gradient(circle at 35% 35%,var(--accent) 0,var(--fire) 48%,transparent 72%);left:-90px;top:-40px}.orb-ice{width:480px;height:480px;background:radial-gradient(circle at 50% 40%,var(--accent) 0,var(--ice) 46%,transparent 72%);right:-120px;bottom:-110px}.glass-card{position:absolute;inset:auto 9% 9% 9%;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);backdrop-filter:blur(20px);color:#fff;padding:28px;border-radius:24px;display:grid;grid-template-columns:90px 1fr;gap:10px 20px}.glass-card hr{grid-column:1/-1;width:100%;border:0;border-top:1px solid rgba(255,255,255,.15)}.glass-card span{font-size:10px;letter-spacing:.2em}.glass-card strong{font-family:var(--heading-font);font-size:24px;font-weight:400}
 .trust-strip{display:grid;grid-template-columns:repeat(4,1fr);border-block:1px solid var(--line)}.trust-item{padding:30px clamp(20px,3vw,44px);border-right:1px solid var(--line);display:flex;gap:18px}.trust-item:last-child{border-right:0}.trust-item span{font-size:10px;color:var(--muted)}.trust-item p{margin:0;font-size:13px}
 .section{padding:clamp(64px,8vw,112px) clamp(20px,6vw,92px)}.section-heading{max-width:900px;margin-bottom:42px}.collection-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}.collection{min-height:460px;padding:40px;border-radius:var(--radius);display:flex;flex-direction:column;justify-content:flex-end;color:#fff;overflow:hidden;position:relative}.collection:before{content:"";position:absolute;inset:0;opacity:.85}.collection>*{position:relative;z-index:1}.collection h3{font-size:clamp(42px,5vw,72px);max-width:600px;margin-bottom:18px}.collection p{max-width:600px}.collection-fire{background:radial-gradient(circle at 70% 5%,var(--accent),var(--fire) 58%,#171512)}.collection-ice{background:radial-gradient(circle at 70% 5%,var(--accent),var(--ice) 58%,#111a1e)}.collection .eyebrow{color:rgba(255,255,255,.68)}.text-link{font-size:13px;font-weight:750;margin-top:20px}
 .statement{padding:clamp(80px,10vw,132px) clamp(20px,8vw,120px);background:var(--dark);color:#fff}.statement .eyebrow{color:#a8a198}.statement blockquote{font-size:clamp(42px,6vw,86px);line-height:1.03;max-width:1200px;margin:0 0 42px}
 .page-hero{padding:clamp(76px,9vw,120px) clamp(20px,7vw,108px) clamp(54px,7vw,82px)}.page-hero h1{max-width:1050px}.page-hero-fire{background:linear-gradient(145deg,#f4f0e8 45%,color-mix(in srgb,var(--fire),white 72%))}.page-hero-ice{background:linear-gradient(145deg,#f4f0e8 45%,color-mix(in srgb,var(--ice),white 72%))}
 .product-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:24px}.product-card{background:#fff;border-radius:var(--radius);overflow:hidden;box-shadow:0 10px 30px rgba(17,16,14,.05)}.product-visual{height:280px;padding:28px;display:flex;align-items:flex-end;background:linear-gradient(135deg,#28241f,var(--fire) 48%,var(--ice));color:#fff}.product-photo{background-size:cover;background-position:center}.product-visual span{font-size:10px;text-transform:uppercase;letter-spacing:.2em}.product-copy{padding:34px}.product-copy p{color:#5f5a52}.detail-list{padding-left:18px;color:#4f4a43}.detail-list li{margin:7px 0}.product-footer{border-top:1px solid var(--line);margin-top:28px;padding-top:20px;display:flex;justify-content:space-between;gap:20px;font-size:13px}
 .cta-band{margin:0 clamp(20px,4vw,60px) clamp(20px,4vw,60px);background:var(--dark);color:#fff;border-radius:32px;padding:clamp(42px,6vw,76px);display:flex;align-items:end;justify-content:space-between;gap:30px}.cta-band h2{max-width:900px;margin-bottom:0}.cta-band .eyebrow{color:#aaa49b}
-.two-col,.about-grid{display:grid;grid-template-columns:.9fr 1.1fr;gap:clamp(36px,7vw,100px)}.about-photo{min-height:320px;margin-top:34px;border-radius:22px;background-size:cover;background-position:center;box-shadow:var(--shadow)}.prose{font-size:19px;color:#504b44}.feature-list{list-style:none;padding:0;margin-top:36px;border-top:1px solid var(--line)}.feature-list li{padding:16px 0;border-bottom:1px solid var(--line)}
+.two-col,.about-grid{display:grid;grid-template-columns:.9fr 1.1fr;gap:clamp(36px,7vw,100px)}.about-gallery{display:grid;grid-template-columns:1.25fr .75fr;gap:10px;margin-top:34px}.about-photo{min-height:220px;border-radius:22px;background-size:cover;background-position:center;box-shadow:var(--shadow)}.about-photo:first-child{grid-row:span 2;min-height:450px}.prose{font-size:19px;color:#504b44}.feature-list{list-style:none;padding:0;margin-top:36px;border-top:1px solid var(--line)}.feature-list li{padding:16px 0;border-bottom:1px solid var(--line)}
 .faq-wrap{max-width:1050px;margin:auto}.faq-item{border-top:1px solid var(--line)}.faq-item:last-child{border-bottom:1px solid var(--line)}.faq-item summary{cursor:pointer;list-style:none;padding:26px 0;font-family:var(--heading-font);font-size:25px}.faq-item summary::-webkit-details-marker{display:none}.faq-item summary:after{content:"+";float:right;font-family:Inter,sans-serif}.faq-item[open] summary:after{content:"−"}.faq-item div{padding:0 0 26px;max-width:800px;color:#5d5850}
 .contact-grid{display:grid;grid-template-columns:.85fr 1.15fr;gap:8vw;align-items:start}.contact-copy{position:sticky;top:130px}.contact-details{margin-top:36px}.contact-details a{text-decoration:underline}.quote-form{background:#fff;padding:clamp(28px,4vw,52px);border-radius:var(--radius);box-shadow:var(--shadow)}.quote-form label{display:grid;gap:8px;font-size:12px;font-weight:700;margin-bottom:20px}.quote-form input,.quote-form select,.quote-form textarea{width:100%;border:1px solid #d6d0c6;border-radius:12px;padding:14px 15px;background:#fbfaf7;color:var(--ink)}.quote-form input:focus,.quote-form select:focus,.quote-form textarea:focus{outline:2px solid #6f8991;outline-offset:2px}.field-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}.honeypot{position:absolute!important;left:-9999px!important;width:1px!important;height:1px!important;overflow:hidden!important}.consent{display:flex!important;grid-template-columns:auto 1fr!important;align-items:flex-start}.consent input{width:auto;margin-top:4px}.form-status{min-height:24px;font-size:13px}.form-status.success{color:#17653a}.form-status.error{color:#a12b2b}
 .site-footer{background:#0f0e0c;color:#fff;padding:64px clamp(20px,6vw,90px);display:grid;grid-template-columns:1.3fr .6fr 1fr;gap:50px}.footer-brand{margin-bottom:20px}.footer-note{color:#aaa49b;max-width:480px;font-size:12px}.footer-links{display:grid;gap:10px;font-size:13px}.site-footer .eyebrow{color:#aaa49b}
@@ -467,7 +476,7 @@ h1,h2,h3,blockquote{font-family:var(--heading-font);font-weight:400;letter-spaci
   .hero{grid-template-columns:1fr;padding-top:70px}.hero-art{min-height:440px}.trust-strip{grid-template-columns:1fr 1fr}.trust-item:nth-child(2){border-right:0}.trust-item{border-bottom:1px solid var(--line)}
   .collection-grid,.product-grid,.two-col,.about-grid,.contact-grid{grid-template-columns:1fr}.collection{min-height:400px}.contact-copy{position:static}.site-footer{grid-template-columns:1fr}.cta-band{align-items:flex-start;flex-direction:column}
 }
-@media(max-width:560px){h1{font-size:44px}.hero{min-height:auto;padding-top:48px}.hero-art{min-height:340px}.glass-card{grid-template-columns:60px 1fr;padding:20px}.trust-strip{grid-template-columns:1fr}.trust-item{border-right:0}.collection{padding:30px;min-height:400px}.product-grid{grid-template-columns:1fr}.field-row{grid-template-columns:1fr}.product-footer{flex-direction:column}}
+@media(max-width:560px){h1{font-size:44px}.hero{min-height:auto;padding-top:48px}.hero-art{min-height:340px}.hero-mini-grid{grid-template-columns:repeat(2,1fr)}.hero-mini{height:72px}.about-gallery{grid-template-columns:1fr 1fr}.about-photo:first-child{grid-row:auto;grid-column:1/-1;min-height:280px}.glass-card{grid-template-columns:60px 1fr;padding:20px}.trust-strip{grid-template-columns:1fr}.trust-item{border-right:0}.collection{padding:30px;min-height:400px}.product-grid{grid-template-columns:1fr}.field-row{grid-template-columns:1fr}.product-footer{flex-direction:column}}
 """
 
 
@@ -531,13 +540,21 @@ def render_site(
     about_image: str | None = None,
     hero_image: str | None = None,
     product_images: list[str] | None = None,
+    hero_images: list[str] | None = None,
+    about_images: list[str] | None = None,
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     assets = output_dir / "assets"
     assets.mkdir(exist_ok=True)
     image_files = image_files or []
-    if hero_image is None and image_files:
-        hero_image = image_files[0]
+    hero_images = list(hero_images or [])
+    about_images = list(about_images or [])
+    if hero_image and hero_image not in hero_images:
+        hero_images.insert(0, hero_image)
+    if about_image and about_image not in about_images:
+        about_images.insert(0, about_image)
+    if not hero_images and image_files:
+        hero_images = [image_files[0]]
     if product_images is None:
         product_images = image_files[1:] if len(image_files) > 1 else []
     product_images = product_images or []
@@ -547,12 +564,12 @@ def render_site(
         "index.html": (
             f"{spec.brand_name}",
             spec.hero_subheading,
-            _home(spec, hero_image),
+            _home(spec, hero_images),
         ),
         "about.html": (
             "About",
             spec.about_body,
-            _about(spec, about_image),
+            _about(spec, about_images),
         ),
         "faq.html": (
             "Frequently asked questions",
