@@ -11,6 +11,7 @@ from agents import Runner
 from dotenv import load_dotenv
 
 from backend.agents.apex import StockTradeIdea, build_apex
+from backend.branding import INTERNAL_NAME
 from backend.agents.circuit import RiskDecision, build_circuit
 from backend.agents.raptor import MemeTradeIdea, build_raptor
 from backend.meme_strategy import compute_stress_level, required_score, score_candidates
