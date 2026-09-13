@@ -215,7 +215,7 @@ Target staging delivery is 7–10 business days after the real project has:
 3. a completed client brief,
 4. the content/assets needed to make the agreed pages reviewable.
 
-The project clock pauses while Darwin is waiting for customer decisions, missing assets, factual corrections
+The project clock pauses while Shenanigan Systems is waiting for customer decisions, missing assets, factual corrections
 or revision feedback. Final legal/privacy/cookie/production details may be completed during staging, but
 they must be resolved before public launch.
 
@@ -281,7 +281,7 @@ Before public launch:
 - [ ] Customer explicitly approves the launch window.
 - [ ] Post-launch checks are scheduled for forms, redirects, 404s, indexing, analytics and uptime.
 
-Darwin must never treat a demo acceptance or an unverified payment promise as revenue.
+A demo acceptance or an unverified payment promise is never treated as revenue.
 """,
         encoding="utf-8",
     )
@@ -436,7 +436,7 @@ def main() -> None:
         _update(conn, project_id, build_dir=str(project_root))
         _set_agent(conn, "Ledger", "READY", "Website project waiting for verified deposit")
         print("Quote acceptance recorded. Deposit remains unverified.")
-        print("Darwin will not begin production work before verified payment.")
+        print("Shenanigan Systems will not begin production work before verified payment.")
         print(f"Quote saved at: {project_root / 'quote.md'}")
         conn.close()
         return
@@ -447,7 +447,7 @@ def main() -> None:
         project_id,
         "Mercury",
         "CLIENT_BRIEF_REQUESTED",
-        "Darwin opened a client questionnaire before committing design, content and functionality decisions.",
+        "Shenanigan Systems opened a client questionnaire before committing design, content and functionality decisions.",
     )
     _set_agent(conn, "Mercury", "WAITING_CLIENT", "Waiting for website project brief")
     client_brief = collect_client_answers(
@@ -466,7 +466,7 @@ def main() -> None:
     )
     _set_agent(conn, "Mercury", "READY", "Client website brief received")
     _update(conn, project_id, status="SCOPE_REVIEW")
-    print("Client brief received. Darwin is now working: scope review -> design -> UX -> QA -> staging.")
+    print("Client brief received. The agents are now working: scope review -> design -> UX -> QA -> staging.")
     seed_launch_questions(project_id)
     _event(
         conn,
@@ -516,7 +516,7 @@ CLIENT BRIEF:
             "Mercury",
             "SCOPE_AUTO_DEFERRED",
             (
-                "Darwin kept the purchased base scope moving autonomously and deferred "
+                "The system kept the purchased base scope moving autonomously and deferred "
                 f"out-of-scope work for a later change order: {items}"
             ),
         )
@@ -571,7 +571,7 @@ do not silently choose a version. Omit the disputed fact from staging or place i
                     "Forge",
                     "REFERENCE_FALLBACK_USED",
                     (
-                        "Live Forge research was temporarily unavailable, so Darwin used its "
+                        "Live Forge research was temporarily unavailable, so the system used its "
                         "conservative Fire & Ice reference specification built from first-party "
                         f"public facts. Original error: {str(forge_exc)[:500]}"
                     ),
@@ -754,7 +754,7 @@ Nova approved=false by itself is not a reason to FLAG; judge the actual revised 
                 project_id,
                 "Sentinel",
                 "QA_REPAIR_REQUESTED",
-                "Sentinel found a staging issue. Darwin is attempting one bounded internal repair before asking the client.\n" + qa,
+                "Sentinel found a staging issue. The agents are attempting one bounded internal repair automatically.\n" + qa,
             )
             _set_agent(conn, "Forge", "WORKING", "Repairing staging specification after Sentinel QA")
             try:
@@ -976,7 +976,7 @@ Rules:
                 "SOURCE_ASSETS_COLLECTED",
                 (
                     f"Collected {len(source_images)} source-site hero candidate(s). "
-                    "Darwin did not guess product-photo placement without client-provided categories."
+                    "The system did not guess product-photo placement without client-provided categories."
                 ),
             )
 
