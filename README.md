@@ -1,6 +1,8 @@
-# Darwin Industries
+# Hosko’s Shady Shenanigans
 
-Darwin Industries is an experimental multi-agent company runtime designed to do bounded, auditable business work with persistent state.
+**Hosko’s Shady Shenanigans** is the internal name of the multi-agent company runtime. Customers should see the clean client-facing brand **Shenanigan Systems**, not the internal name.
+
+The runtime is designed to do bounded, auditable business work with persistent state. Legacy Python module names, environment variables and the GitHub repository name may still contain `darwin` for compatibility; that is an implementation detail, not the active company brand.
 
 ## Current business loop
 
@@ -22,13 +24,17 @@ The runtime can now:
 
 Cash spending remains disabled. The trading desk is simulation-only and does not place real-money orders.
 
-## Run a workday
+## Start the whole company
 
-After local setup:
+Preferred Windows launcher:
 
 ```bat
-python -m backend.workday --hours 6
+run_shenanigans.bat
 ```
+
+That opens Mission Control and starts the worker agents plus the PAPER trading desk together for a six-hour company day. The Mission Control **RUN** button starts another six-hour company day when the company is idle.
+
+The lower-level commands still exist for debugging, but routine use should not require separate worker/trading CMD windows.
 
 Defaults:
 
@@ -66,11 +72,11 @@ A normal six-cycle workday uses the roster this way:
 - **Sentinel** QA-checks audits, outreach, and outbound safety every cycle.
 - **Atlas, Ledger, Nova, Freya, Midas, and Satoshi** rotate through one focused department assignment per cycle so all six complete work during a normal 6-hour session.
 
-The rotation is deliberate: all agents are on shift, but Darwin does not burn six extra model calls every hour just to make them look busy. Department outputs are persisted and can be read with `python -m backend.board`. The status screen also tracks each agent's last action plus simulated confidence, stress, motivation, and job security.
+The rotation is deliberate: all agents are on shift, but the runtime does not burn six extra model calls every hour just to make them look busy. Department outputs are persisted and can be read with `python -m backend.board`. The status screen also tracks each agent's last action plus simulated confidence, stress, motivation, and job security.
 
 ## Live Mission Control + owner customer demo
 
-Darwin now includes a local live monitoring screen. It reads SQLite state only, auto-refreshes every two seconds, and does not trigger model calls.
+Hosko’s Shady Shenanigans includes a local live Mission Control screen. It reads SQLite state only, auto-refreshes every two seconds, and does not trigger model calls.
 
 Start it in one Command Prompt window:
 
@@ -86,7 +92,7 @@ http://127.0.0.1:8765
 
 The screen shows the full agent floor, current actions, simulated confidence/stress/motivation/job security, sales-pipeline state, company events, and a step-by-step customer journey.
 
-To experience Darwin as the customer, use a second Command Prompt window:
+To experience the client workflow, use a second Command Prompt window:
 
 ```bat
 python -m backend.demo_customer --business-name "Uptrend" --website "https://uptrend.live" --email "hannes@uptrend.live" --pace-seconds 5
