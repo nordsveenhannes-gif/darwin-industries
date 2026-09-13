@@ -371,10 +371,130 @@ def _daily_paper_pnl(conn, asset_class: str) -> float:
     return float(row["pnl"] or 0)
 
 
-def _risk_review(conn, asset_class: str, idea, max_notional: float, daily_stop: float):
+def _start_trading_session(conn, hours: float) -> int:
+    try:
+        equity = float(os.getenv("DARWIN_MEME_PAPER_ACCOUNT_USD", "100"))
+    except ValueError:
+        equity = 100.0
+    equity = max(25.0, min(equity, 100000.0))
+    cur = conn.execute(
+        """
+        INSERT INTO trading_sessions(
+            started_at,target_hours,status,initial_equity_usd,cycles_completed,
+            model_calls_used,stress_level,defensive_mode,note
+        )
+        VALUES (?,?,'RUNNING',?,0,0,0,0,?)
+        """,
+        (
+            now_iso(),
+            hours,
+            equity,
+            "Six-hour Darwin paper-trading qualification shift. No live execution.",
+        ),
+    )
+    conn.commit()
+    return int(cur.lastrowid)
+
+
+def _session_state(conn, session_id: int) -> dict:
+    session = conn.execute(
+        "SELECT * FROM trading_sessions WHERE id=?",
+        (session_id,),
+    ).fetchone()
+    if not session:
+        raise RuntimeError("Trading session does not exist.")
+
+    closed = conn.execute(
+        """
+        SELECT pnl_usd,initial_risk_usd,closed_at
+        FROM paper_trades
+        WHERE session_id=? AND asset_class='MEME' AND status!='OPEN'
+        ORDER BY id
+        """,
+        (session_id,),
+    ).fetchall()
+
+    realized = sum(float(row["pnl_usd"] or 0) for row in closed)
+    initial_equity = float(session["initial_equity_usd"] or 100.0)
+    one_r = max(initial_equity * 0.01, 0.01)
+    realized_r = realized / one_r
+
+    consecutive_losses = 0
+    for row in reversed(closed):
+        if float(row["pnl_usd"] or 0) < 0:
+            consecutive_losses += 1
+        else:
+            break
+
+    last_trade_at = session["last_trade_at"]
+    if last_trade_at:
+        last_dt = datetime.fromisoformat(last_trade_at)
+    else:
+        last_dt = datetime.fromisoformat(session["started_at"])
+    minutes_since_trade = max(
+        0.0,
+        (datetime.now(timezone.utc) - last_dt).total_seconds() / 60.0,
+    )
+
+    defensive = consecutive_losses >= 3 or realized_r <= -4.0
+    hard_loss_stop = realized_r <= -5.0
+
+    return {
+        "initial_equity_usd": initial_equity,
+        "realized_pnl_usd": realized,
+        "realized_r": realized_r,
+        "consecutive_losses": consecutive_losses,
+        "minutes_since_trade": minutes_since_trade,
+        "defensive_mode": defensive,
+        "hard_loss_stop": hard_loss_stop,
+    }
+
+
+def _update_session_runtime(
+    conn,
+    session_id: int,
+    *,
+    cycle: int,
+    model_calls: int,
+    stress_level: int,
+    defensive_mode: bool,
+) -> None:
+    conn.execute(
+        """
+        UPDATE trading_sessions
+        SET cycles_completed=?,model_calls_used=?,stress_level=?,defensive_mode=?
+        WHERE id=?
+        """,
+        (
+            cycle,
+            model_calls,
+            stress_level,
+            1 if defensive_mode else 0,
+            session_id,
+        ),
+    )
+    conn.commit()
+
+
+def _risk_review(
+    conn,
+    asset_class: str,
+    idea,
+    max_notional: float,
+    daily_stop: float,
+    *,
+    session_state: dict | None = None,
+):
     pnl = _daily_paper_pnl(conn, asset_class)
     if pnl <= -abs(daily_stop):
         return None, f"BLOCKED: daily paper loss stop reached ({pnl:+.2f} USD)."
+
+    session_state = session_state or {}
+    if session_state.get("hard_loss_stop"):
+        return None, (
+            "BLOCKED: session hard loss stop reached "
+            f"({session_state.get('realized_r', 0):+.2f}R)."
+        )
 
     prompt = f"""
 Review this PAPER-trade proposal.
@@ -383,11 +503,16 @@ Asset class: {asset_class}
 Hard max notional USD: {max_notional:.2f}
 Today's realized paper P&L USD: {pnl:.2f}
 Daily paper loss stop USD: -{abs(daily_stop):.2f}
+Session realized R: {float(session_state.get('realized_r', 0)):.2f}
+Consecutive session losses: {int(session_state.get('consecutive_losses', 0))}
+Defensive mode: {bool(session_state.get('defensive_mode', False))}
 
 Proposal:
 {idea.model_dump_json(indent=2)}
 
-Approve only if the setup has explicit entry, stop, target, bounded size and exit.
+Approve B-quality/probe setups when the proposal satisfies its deterministic score threshold,
+two-signal minimum, friction rule, bounded account risk, and explicit exit.
+Block ruin-risk, missing identity, oversized risk, broken friction, or hard-stop violations.
 This is simulation only; no live order may be placed.
 """
     decision = Runner.run_sync(build_circuit(), prompt).final_output
