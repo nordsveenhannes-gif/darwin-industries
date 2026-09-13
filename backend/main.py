@@ -32,7 +32,7 @@ def main() -> None:
         )
 
     opportunity = (
-        "Darwin Industries is evaluating a productized AI-assisted website audit "
+        "Hosko’s Shady Shenanigans is evaluating a productized AI-assisted website audit "
         "for small local service businesses. The proposed deliverable covers mobile usability, "
         "offer clarity, contact friction, basic local SEO issues, and three prioritized improvements. "
         "The immediate goal is to validate demand within 48 hours with minimal upfront cost."
@@ -43,7 +43,7 @@ def main() -> None:
     run_id = create_run(conn, opportunity)
     save_event(conn, run_id, "RUN_STARTED", "Company planning run started.")
 
-    print(f"\nDarwin run #{run_id} started. Reports will be saved to data/darwin.db.")
+    print(f"\nShenanigans run #{run_id} started. Reports will be saved to data/darwin.db.")
 
     print("\n=== MERCURY / SALES ===\n")
     mercury_report = run_agent(build_mercury(), opportunity)
