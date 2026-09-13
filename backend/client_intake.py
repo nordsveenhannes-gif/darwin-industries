@@ -44,7 +44,7 @@ INITIAL_QUESTIONS = [
     {
         "key": "primary_goal",
         "question": "What is the main job this website should do?",
-        "why": "This determines the page hierarchy and what Darwin optimizes the experience around.",
+        "why": "This determines the page hierarchy and what Shenanigan Systems optimizes the experience around.",
         "required_for": "STAGING",
         "placeholder": "Example: Generate more serious quotation requests for premium home installations.",
     },
@@ -58,14 +58,14 @@ INITIAL_QUESTIONS = [
     {
         "key": "primary_action",
         "question": "What should a visitor ideally do before leaving the site?",
-        "why": "Darwin needs one clear primary conversion instead of competing calls to action.",
+        "why": "Shenanigan Systems needs one clear primary conversion instead of competing calls to action.",
         "required_for": "STAGING",
         "placeholder": "Example: Request pricing / book a consultation / call / buy online.",
     },
     {
         "key": "brand_direction",
         "question": "How should the new site feel, and what should we keep or avoid from the current brand?",
-        "why": "This prevents Darwin from imposing a generic design direction the client never asked for.",
+        "why": "This prevents our design system from imposing a generic direction the client never asked for.",
         "required_for": "STAGING",
         "placeholder": "Example: Quiet luxury, architectural, warm/cold contrast. Keep the logo. Avoid flashy gradients and salesy wording.",
     },
@@ -85,7 +85,7 @@ INITIAL_QUESTIONS = [
     },
     {
         "key": "staging_asset_permission",
-        "question": "May Darwin reuse the logo, copy and images already published on the current site in this private staging preview?",
+        "question": "May Shenanigan Systems reuse the logo, copy and images already published on the current site in this private staging preview?",
         "why": "A redesign can look realistic without treating public availability as proof of production licensing rights.",
         "required_for": "STAGING",
         "placeholder": "Answer yes/no and note any images, logos or copy we must not reuse.",
@@ -134,7 +134,7 @@ LAUNCH_QUESTIONS = [
     {
         "key": "launch_hosting_domain",
         "question": "Who owns the domain and hosting, and who can grant secure production access when launch is approved?",
-        "why": "Darwin should never take ownership of the client's domain or request ordinary-email passwords.",
+        "why": "Shenanigan Systems should never take ownership of the client's domain or request ordinary-email passwords.",
         "required_for": "LAUNCH",
     },
 ]
