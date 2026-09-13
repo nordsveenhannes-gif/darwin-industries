@@ -82,7 +82,7 @@ class ScopeDecision(BaseModel):
 
 
 SCOPE_INSTRUCTIONS = """
-You are Mercury, commercial project manager at Darwin Industries.
+You are Mercury, commercial project manager at Hosko’s Shady Shenanigans.
 
 Compare the accepted website quotation with the client's completed brief before production begins.
 
@@ -118,7 +118,7 @@ Rules:
 
 
 CLARIFIER_INSTRUCTIONS = """
-You are Mercury and Sentinel working together as a client clarification planner for Darwin Industries.
+You are Mercury and Sentinel working together as a client clarification planner for Hosko’s Shady Shenanigans.
 
 A website project has been researched and reviewed. Decide whether unresolved issues actually require
 the client before a PRIVATE STAGING build can continue.
