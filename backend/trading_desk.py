@@ -549,124 +549,31 @@ def _gecko_ohlcv(pool_address: str) -> list[dict]:
         except (TypeError, ValueError):
             continue
     candles.sort(key=lambda x: x["timestamp"])
-    return candles[-48:]
-
-
-def _meme_setup_features(
-    candles: list[dict],
-    buys_h1: int = 0,
-    sells_h1: int = 0,
-) -> dict:
-    result = {
-        "passes": False,
-        "reason": "insufficient 5-minute OHLCV history",
-        "support_price": None,
-        "support_touches": 0,
-        "distance_from_support_pct": None,
-        "momentum_15m_pct": None,
-        "volume_ratio": None,
-        "buys_h1": int(buys_h1 or 0),
-        "sells_h1": int(sells_h1 or 0),
-        "recommended_stop": None,
-        "recommended_target": None,
-    }
-    if len(candles) < 12:
-        return result
-
-    recent = candles[-30:]
-    historical = recent[:-1]
-    lows = [float(c["low"]) for c in historical if c.get("low")]
-    if len(lows) < 8:
-        result["reason"] = "not enough usable lows to identify repeat support"
-        return result
-
-    best_anchor = None
-    best_matches = []
-    for anchor in lows:
-        if anchor <= 0:
-            continue
-        matches = [low for low in lows if abs(low - anchor) / anchor <= 0.012]
-        if len(matches) > len(best_matches):
-            best_anchor = anchor
-            best_matches = matches
-
-    if not best_anchor or not best_matches:
-        result["reason"] = "no support cluster found"
-        return result
-
-    support = sorted(best_matches)[len(best_matches) // 2]
-    current = float(recent[-1]["close"])
-    previous = float(recent[-4]["close"]) if len(recent) >= 4 else float(recent[-2]["close"])
-    momentum_15m = ((current / previous) - 1.0) * 100 if previous > 0 else 0.0
-
-    recent_volumes = [float(c.get("volume") or 0) for c in recent[-3:]]
-    prior_volumes = [float(c.get("volume") or 0) for c in recent[-9:-3]]
-    recent_volume = sum(recent_volumes) / max(len(recent_volumes), 1)
-    prior_volume = sum(prior_volumes) / max(len(prior_volumes), 1)
-    volume_ratio = recent_volume / prior_volume if prior_volume > 0 else 1.0
-
-    touches = len(best_matches)
-    distance_pct = ((current / support) - 1.0) * 100 if support > 0 else 999.0
-    buy_pressure = buys_h1 > sells_h1 and buys_h1 >= 5
-
-    # This is deliberately a deterministic pre-filter, not a trade order.
-    # It ensures Raptor sees setups that can actually satisfy the user's strategy:
-    # repeated support, a reclaim away from it, and strengthening activity.
-    passes = (
-        touches >= 2
-        and 0.4 <= distance_pct <= 8.0
-        and momentum_15m >= 0.30
-        and volume_ratio >= 1.05
-        and buy_pressure
-    )
-
-    stop = support * 0.985
-    risk = max(current - stop, current * 0.015)
-    target = current + risk * 2.2
-
-    result.update(
-        {
-            "passes": passes,
-            "reason": (
-                "repeat support + reclaim + momentum/volume gate passed"
-                if passes
-                else (
-                    f"gate not met: touches={touches}, distance={distance_pct:.2f}%, "
-                    f"15m momentum={momentum_15m:.2f}%, volume={volume_ratio:.2f}x, "
-                    f"h1 buys/sells={buys_h1}/{sells_h1}"
-                )
-            ),
-            "support_price": support,
-            "support_touches": touches,
-            "distance_from_support_pct": round(distance_pct, 3),
-            "momentum_15m_pct": round(momentum_15m, 3),
-            "volume_ratio": round(volume_ratio, 3),
-            "recommended_stop": stop,
-            "recommended_target": target,
-        }
-    )
-    return result
+    return candles[-120:]
 
 
 def _compact_meme_candidate(details: dict) -> dict:
-    return {
-        "symbol": details.get("symbol"),
-        "token_address": details.get("token_address"),
-        "pool_address": details.get("pool_address"),
-        "price_usd": details.get("price_usd"),
-        "liquidity_usd": details.get("liquidity_usd"),
-        "volume_h24": details.get("volume_h24"),
-        "activity_h1": details.get("activity_h1"),
-        "setup_gate": details.get("setup_gate"),
-        "ohlcv_5m": (details.get("ohlcv_5m") or [])[-24:],
-    }
+    keys = [
+        "symbol", "token_address", "pool_address", "price_usd", "liquidity_usd",
+        "market_cap_usd", "fdv_usd", "age_minutes", "age_bucket", "buys_m5",
+        "sells_m5", "buys_h1", "sells_h1", "volume_m5", "volume_h1", "volume_h24",
+        "price_change_m5", "price_change_h1", "volume_acceleration",
+        "transaction_acceleration", "buy_ratio_m5", "hard_gate_pass",
+        "hard_gate_reason", "paper_tradeable", "live_safety_complete",
+        "unverified_live_checks", "signals", "signal_count", "setup_score",
+        "required_score", "stress_level", "defensive_mode", "suggested_mode",
+        "recommended_entry", "recommended_stop", "recommended_target",
+        "recommended_risk_pct", "max_position_usd", "expected_round_trip_cost_pct",
+        "expected_first_move_pct", "friction_multiple_required", "friction_pass",
+        "technical_pass", "max_hold_minutes", "structure",
+    ]
+    payload = {key: details.get(key) for key in keys}
+    payload["ohlcv_1m"] = (details.get("ohlcv_1m") or [])[-45:]
+    return payload
 
 
 def _dexscreener_meme_candidates() -> list[dict]:
-    """
-    Fallback market feed when Moonshot's legacy api.moonshot.cc hostname is unavailable.
-    Uses DEX Screener's public Solana endpoints and returns liquid, actively traded candidates.
-    """
+    """Continuously rerank new Solana flow instead of using a static watchlist."""
     boosts = _http_json(DEXSCREENER_BOOSTS)
     if not isinstance(boosts, list):
         return []
@@ -680,15 +587,13 @@ def _dexscreener_meme_candidates() -> list[dict]:
         address = str(item.get("tokenAddress", "")).strip()
         if address and address not in addresses:
             addresses.append(address)
-        if len(addresses) >= 20:
+        if len(addresses) >= 40:
             break
 
     if not addresses:
         return []
 
-    pairs = _http_json(
-        DEXSCREENER_TOKENS.format(addresses=",".join(addresses))
-    )
+    pairs = _http_json(DEXSCREENER_TOKENS.format(addresses=",".join(addresses)))
     if not isinstance(pairs, list):
         return []
 
@@ -700,221 +605,381 @@ def _dexscreener_meme_candidates() -> list[dict]:
         address = str(base.get("address") or "").strip()
         symbol = str(base.get("symbol") or "").upper().strip()
         price = _number(pair.get("priceUsd"))
+        pool_address = str(pair.get("pairAddress") or "").strip()
         liquidity = _number((pair.get("liquidity") or {}).get("usd")) or 0.0
-        volume_h24 = _number((pair.get("volume") or {}).get("h24")) or 0.0
-        txns_h1 = pair.get("txns") or {}
-        h1 = txns_h1.get("h1") or {}
+
+        volume = pair.get("volume") or {}
+        volume_m5 = _number(volume.get("m5")) or 0.0
+        volume_h1 = _number(volume.get("h1")) or 0.0
+        volume_h6 = _number(volume.get("h6")) or 0.0
+        volume_h24 = _number(volume.get("h24")) or 0.0
+
+        txns = pair.get("txns") or {}
+        m5 = txns.get("m5") or {}
+        h1 = txns.get("h1") or {}
+        buys_m5 = int(m5.get("buys") or 0)
+        sells_m5 = int(m5.get("sells") or 0)
         buys_h1 = int(h1.get("buys") or 0)
         sells_h1 = int(h1.get("sells") or 0)
-        activity = buys_h1 + sells_h1
-        pool_address = str(pair.get("pairAddress") or "").strip()
+        activity_h1 = buys_h1 + sells_h1
 
-        if not address or not symbol or not price:
+        price_change = pair.get("priceChange") or {}
+        price_change_m5 = float(price_change.get("m5") or 0)
+        price_change_h1 = float(price_change.get("h1") or 0)
+        price_change_h6 = float(price_change.get("h6") or 0)
+
+        if not address or not symbol or not price or not pool_address:
             continue
-        # Avoid ultra-thin pools in the simulation.
-        if liquidity < 10000 or volume_h24 < 10000:
+        if liquidity < 5000 or volume_h1 < 1000:
             continue
 
-        rank = liquidity + volume_h24 + activity * 100
+        discovery_rank = (
+            volume_m5 * 12.0
+            + volume_h1 * 1.5
+            + activity_h1 * 120.0
+            + liquidity * 0.35
+            + abs(price_change_h1) * 800.0
+        )
         current = best_by_token.get(address)
-        if current is None or rank > current["rank"]:
+        if current is None or discovery_rank > current["discovery_rank"]:
             best_by_token[address] = {
-                "rank": rank,
+                "discovery_rank": discovery_rank,
                 "symbol": symbol,
                 "token_id": address,
                 "price": price,
-                "payload": pair,
+                "pool_address": pool_address,
                 "liquidity_usd": liquidity,
+                "market_cap_usd": _number(pair.get("marketCap")),
+                "fdv_usd": _number(pair.get("fdv")),
+                "pair_created_at": pair.get("pairCreatedAt"),
+                "volume_m5": volume_m5,
+                "volume_h1": volume_h1,
+                "volume_h6": volume_h6,
                 "volume_h24": volume_h24,
-                "activity_h1": activity,
+                "buys_m5": buys_m5,
+                "sells_m5": sells_m5,
                 "buys_h1": buys_h1,
                 "sells_h1": sells_h1,
-                "pool_address": pool_address,
+                "activity_h1": activity_h1,
+                "price_change_m5": price_change_m5,
+                "price_change_h1": price_change_h1,
+                "price_change_h6": price_change_h6,
             }
 
+    try:
+        candidate_limit = int(os.getenv("DARWIN_MEME_CANDIDATES", "10"))
+    except ValueError:
+        candidate_limit = 10
+    candidate_limit = max(5, min(candidate_limit, 15))
     return sorted(
         best_by_token.values(),
-        key=lambda x: x["rank"],
+        key=lambda x: x["discovery_rank"],
         reverse=True,
-    )[:6]
+    )[:candidate_limit]
 
 
-def _meme_market_bundle(conn):
-    """
-    Use a supported public Solana market-data feed by default.
+def _meme_market_bundle(conn, *, stress_level: int, session_state: dict):
+    raw_candidates = _dexscreener_meme_candidates()
+    if not raw_candidates:
+        return [], {}, "dexscreener+geckoterminal"
 
-    Moonshot's old public Data API is still present in legacy documentation, but its
-    api.moonshot.cc hostname is not currently reliable. Darwin therefore does NOT depend
-    on that endpoint. Set DARWIN_USE_LEGACY_MOONSHOT_API=true only to probe it explicitly.
+    try:
+        max_notional = float(os.getenv("DARWIN_MEME_PAPER_NOTIONAL_USD", "40"))
+    except ValueError:
+        max_notional = 40.0
+    max_notional = max(5.0, min(max_notional, 5000.0))
 
-    This market feed is for discovery/analysis. Future execution from a Moonshot
-    self-custodial wallet should use the supported on-chain/Jupiter route, not app scraping.
-    """
-    bundle = []
+    hydrated = []
     prices = {}
-    source = "dexscreener"
-
-    use_legacy = os.getenv("DARWIN_USE_LEGACY_MOONSHOT_API", "false").strip().lower() == "true"
-    if use_legacy:
-        try:
-            trending = _http_json(MOONSHOT_TRENDING)
-            tokens = trending if isinstance(trending, list) else trending.get("data", [])
-
-            for token in list(tokens)[:6]:
-                if not isinstance(token, dict):
-                    continue
-                symbol, token_id, price = _token_identity(token)
-                if not symbol:
-                    continue
-                details = {"token": token, "market_source": "moonshot_legacy"}
-                if token_id:
-                    try:
-                        details["latest_trades"] = _http_json(
-                            MOONSHOT_TRADES.format(token_id=token_id)
-                        )
-                    except Exception as exc:
-                        details["trades_error"] = str(exc)
-                _snapshot(conn, "MEME", symbol, "moonshot_legacy", price, details)
-                if price:
-                    prices[symbol] = price
-                details["local_price_history"] = _history(conn, "MEME", symbol, 30)
-                bundle.append(details)
-
-            if bundle:
-                return bundle, prices, "moonshot_legacy"
-        except Exception as exc:
-            print("Legacy Moonshot Data API probe failed; using DEX Screener:", exc)
-
-    for candidate in _dexscreener_meme_candidates():
+    for candidate in raw_candidates:
         symbol = candidate["symbol"]
         price = candidate["price"]
-        candles = []
-        ohlcv_error = None
-        pool_address = candidate.get("pool_address")
-        if pool_address:
-            try:
-                candles = _gecko_ohlcv(pool_address)
-            except Exception as exc:
-                ohlcv_error = str(exc)[:300]
-
-        setup_gate = _meme_setup_features(
-            candles,
-            buys_h1=candidate.get("buys_h1", 0),
-            sells_h1=candidate.get("sells_h1", 0),
-        )
-        details = {
-            "market_source": "dexscreener+geckoterminal",
-            "symbol": symbol,
-            "token_address": candidate["token_id"],
-            "pool_address": pool_address,
-            "price_usd": price,
-            "liquidity_usd": candidate["liquidity_usd"],
-            "volume_h24": candidate["volume_h24"],
-            "activity_h1": candidate["activity_h1"],
-            "buys_h1": candidate.get("buys_h1", 0),
-            "sells_h1": candidate.get("sells_h1", 0),
-            "ohlcv_5m": candles,
-            "ohlcv_error": ohlcv_error,
-            "setup_gate": setup_gate,
-        }
-        _snapshot(conn, "MEME", symbol, "dexscreener", price, details)
         prices[symbol] = price
-        details["local_price_history"] = _history(conn, "MEME", symbol, 30)
-        bundle.append(details)
+        try:
+            candles = _gecko_ohlcv(candidate["pool_address"])
+            ohlcv_error = None
+        except Exception as exc:
+            candles = []
+            ohlcv_error = str(exc)[:300]
 
-    return bundle, prices, "dexscreener+geckoterminal"
+        hydrated.append(
+            {
+                "market_source": "dexscreener+geckoterminal",
+                "symbol": symbol,
+                "token_address": candidate["token_id"],
+                "pool_address": candidate["pool_address"],
+                "price_usd": price,
+                "liquidity_usd": candidate["liquidity_usd"],
+                "market_cap_usd": candidate.get("market_cap_usd"),
+                "fdv_usd": candidate.get("fdv_usd"),
+                "pair_created_at": candidate.get("pair_created_at"),
+                "volume_m5": candidate.get("volume_m5", 0),
+                "volume_h1": candidate.get("volume_h1", 0),
+                "volume_h6": candidate.get("volume_h6", 0),
+                "volume_h24": candidate.get("volume_h24", 0),
+                "buys_m5": candidate.get("buys_m5", 0),
+                "sells_m5": candidate.get("sells_m5", 0),
+                "buys_h1": candidate.get("buys_h1", 0),
+                "sells_h1": candidate.get("sells_h1", 0),
+                "activity_h1": candidate.get("activity_h1", 0),
+                "price_change_m5": candidate.get("price_change_m5", 0),
+                "price_change_h1": candidate.get("price_change_h1", 0),
+                "price_change_h6": candidate.get("price_change_h6", 0),
+                "ohlcv_1m": candles,
+                "ohlcv_error": ohlcv_error,
+            }
+        )
 
-def _moonshot_cycle(conn, model_budget: list[int], max_model_calls: int) -> None:
-    _set_agent(conn, "Raptor", "WORKING", "Scanning live Solana meme market data for paper setups")
+    scored = score_candidates(
+        hydrated,
+        stress_level=stress_level,
+        account_equity_usd=float(session_state["initial_equity_usd"]),
+        defensive_mode=bool(session_state["defensive_mode"]),
+        max_notional_usd=max_notional,
+    )
+
+    for details in scored:
+        _snapshot(
+            conn,
+            "MEME",
+            str(details["symbol"]),
+            "dexscreener+geckoterminal",
+            float(details["price_usd"]),
+            details,
+        )
+        details["local_price_history"] = _history(conn, "MEME", str(details["symbol"]), 40)
+
+    return scored, prices, "dexscreener+geckoterminal"
+
+
+def _moonshot_cycle(
+    conn,
+    model_budget: list[int],
+    max_model_calls: int,
+    *,
+    session_id: int,
+    session_state: dict,
+    stress_level: int,
+) -> bool:
+    _set_agent(
+        conn,
+        "Raptor",
+        "WORKING",
+        f"Reranking live Solana flow • stress {stress_level}/4 • paper only",
+    )
     try:
-        bundle, prices, market_source = _meme_market_bundle(conn)
+        bundle, prices, market_source = _meme_market_bundle(
+            conn,
+            stress_level=stress_level,
+            session_state=session_state,
+        )
 
         for line in _close_paper_trades(conn, "MEME", prices):
             print("Raptor paper exit:", line)
 
-        if not bundle or model_budget[0] + 2 > max_model_calls:
-            _set_agent(conn, "Raptor", "READY", "Solana scan complete; no setup review")
-            return
+        if not bundle:
+            _set_agent(conn, "Raptor", "READY", "No tradeable Solana candidates in current flow")
+            return False
 
-        gated = [
-            item
-            for item in bundle
-            if (item.get("setup_gate") or {}).get("passes")
+        open_rows = conn.execute(
+            "SELECT symbol FROM paper_trades WHERE asset_class='MEME' AND status='OPEN'"
+        ).fetchall()
+        open_symbols = {str(row["symbol"]).upper() for row in open_rows}
+        qualified = [
+            item for item in bundle
+            if item.get("technical_pass")
+            and str(item.get("symbol") or "").upper() not in open_symbols
         ]
-        print(
-            f"Raptor market feed: {market_source}; {len(bundle)} candidate(s), "
-            f"{len(gated)} passed deterministic support/momentum gate."
-        )
 
-        if not gated:
-            best = max(
-                bundle,
-                key=lambda x: int((x.get("setup_gate") or {}).get("support_touches") or 0),
+        threshold = required_score(stress_level, bool(session_state["defensive_mode"]))
+        print(
+            f"Raptor flow: {len(bundle)} ranked candidate(s); "
+            f"{len(qualified)} meet stress-{stress_level} threshold (score >= {threshold})."
+        )
+        for item in bundle[:5]:
+            state = "READY" if item["technical_pass"] else (
+                item["hard_gate_reason"] if not item["hard_gate_pass"] else "WATCH"
             )
-            gate = best.get("setup_gate") or {}
+            print(
+                f"  {item['symbol']}: score {item['setup_score']}/{item['required_score']} • "
+                f"signals {item['signal_count']} • friction {item['expected_round_trip_cost_pct']:.2f}% • "
+                f"move {item['expected_first_move_pct']:.2f}% • {state}"
+            )
+
+        if session_state.get("hard_loss_stop"):
+            best = bundle[0]
             idea = MemeTradeIdea(
-                symbol=str(best.get("symbol") or "NONE"),
+                symbol=str(best["symbol"]),
+                token_address=str(best.get("token_address") or ""),
                 action="WAIT",
+                trade_mode="NONE",
+                setup_score=int(best["setup_score"]),
+                stress_level=stress_level,
+                confidence=100,
+                thesis="Session hard loss stop is active. Observation only.",
+                signal_1="session_loss_stop",
+                signal_2="no_new_risk",
+                support_evidence="Trading is disabled for the rest of this session.",
+                momentum_evidence="Market observation continues without new positions.",
+                invalidation="No paper entry while hard loss stop is active.",
+                expected_round_trip_cost_pct=float(best["expected_round_trip_cost_pct"]),
+                expected_first_move_pct=float(best["expected_first_move_pct"]),
+                risk_pct=0,
+                position_size_usd=0,
+                take_profit_logic="Not applicable.",
+                runner_plan="Not applicable.",
+                max_hold_minutes=15,
+            )
+            _record_signal(
+                conn, "Raptor", "MEME", idea,
+                "Circuit not called: session hard loss stop.",
+                session_id=session_id, market_source=market_source,
+            )
+            _set_agent(conn, "Raptor", "READY", "Session loss stop active; observing only")
+            return False
+
+        if not qualified:
+            best = bundle[0]
+            signals = list(best.get("signals") or [])
+            idea = MemeTradeIdea(
+                symbol=str(best["symbol"]),
+                token_address=str(best.get("token_address") or ""),
+                action="WAIT" if best.get("hard_gate_pass") else "REJECT",
+                trade_mode="NONE",
+                setup_score=int(best["setup_score"]),
+                stress_level=stress_level,
                 confidence=85,
                 thesis=(
-                    "No scanned Solana meme candidate passed the deterministic setup gate. "
-                    + str(gate.get("reason") or "")
+                    f"Best score {best['setup_score']} vs required {best['required_score']}; "
+                    f"signals={signals}; friction pass={best['friction_pass']}."
                 ),
-                support_evidence=gate.get("reason") or "No valid repeated support setup.",
+                signal_1=signals[0] if len(signals) > 0 else "no_positive_signal",
+                signal_2=signals[1] if len(signals) > 1 else "needs_second_signal",
+                optional_signal_3=signals[2] if len(signals) > 2 else "",
+                support_evidence=str((best.get("structure") or {}).get("support")),
                 momentum_evidence=(
-                    f"15m momentum {gate.get('momentum_15m_pct')}%; "
-                    f"volume ratio {gate.get('volume_ratio')}x; "
-                    f"h1 buys/sells {gate.get('buys_h1')}/{gate.get('sells_h1')}."
+                    f"5m={best.get('price_change_m5')}%; h1={best.get('price_change_h1')}%; "
+                    f"volume accel={best.get('volume_acceleration')}x; "
+                    f"transaction accel={best.get('transaction_acceleration')}x"
                 ),
-                invalidation="No paper position was opened.",
+                invalidation="No position opened.",
+                expected_round_trip_cost_pct=float(best["expected_round_trip_cost_pct"]),
+                expected_first_move_pct=float(best["expected_first_move_pct"]),
+                risk_pct=0,
+                position_size_usd=0,
                 take_profit_logic="Not applicable while waiting.",
-                max_hold_minutes=30,
+                runner_plan="Not applicable.",
+                max_hold_minutes=15,
             )
-        else:
-            model_view = [_compact_meme_candidate(item) for item in gated[:3]]
-            idea = Runner.run_sync(
-                build_raptor(),
-                "Choose at most one PAPER setup from these live Solana candidates. "
-                "Each candidate already passed a deterministic repeated-support/reclaim/momentum prefilter. "
-                "Independently verify the supplied 5-minute OHLCV. Prefer BUY when the setup remains valid "
-                "and there is no clear risk disqualifier; otherwise WAIT. Use supplied prices only.\n\n"
-                + json.dumps(model_view, ensure_ascii=False)[:45000],
-            ).final_output
-            model_budget[0] += 1
-            if not isinstance(idea, MemeTradeIdea):
-                raise RuntimeError("Raptor returned an unexpected output.")
+            _record_signal(
+                conn, "Raptor", "MEME", idea,
+                "Circuit not called: adaptive technical threshold not met.",
+                session_id=session_id, market_source=market_source,
+            )
+            _set_agent(
+                conn, "Raptor", "READY",
+                f"Watching {best['symbol']} • score {best['setup_score']}/{best['required_score']} • stress {stress_level}/4",
+            )
+            return False
+
+        if model_budget[0] + 2 > max_model_calls:
+            _set_agent(conn, "Raptor", "READY", "Qualified setup found but model-call guardrail is exhausted")
+            return False
+
+        model_view = [_compact_meme_candidate(item) for item in qualified[:3]]
+        idea = Runner.run_sync(
+            build_raptor(),
+            (
+                "Choose at most one PAPER trade from the ranked candidates below. "
+                "They already passed deterministic hard gates, adaptive setup score, two-signal minimum, "
+                "and execution-friction tests. BUY a valid opportunity unless you can name a concrete "
+                "contradiction in the supplied data. Do not wait for perfection.\n\n"
+                + json.dumps(model_view, ensure_ascii=False)[:65000]
+            ),
+        ).final_output
+        model_budget[0] += 1
+        if not isinstance(idea, MemeTradeIdea):
+            raise RuntimeError("Raptor returned an unexpected output.")
+
+        lookup = {str(item["symbol"]).upper(): item for item in qualified}
+        chosen = lookup.get(str(idea.symbol).upper())
+        if idea.action == "BUY" and not chosen:
+            idea = idea.model_copy(
+                update={
+                    "action": "REJECT",
+                    "trade_mode": "NONE",
+                    "thesis": "Raptor selected a symbol outside Darwin's qualified candidate set.",
+                    "risk_pct": 0,
+                    "position_size_usd": 0,
+                }
+            )
+
+        if chosen:
+            signals = list(chosen.get("signals") or [])
+            idea = idea.model_copy(
+                update={
+                    "token_address": chosen.get("token_address"),
+                    "setup_score": int(chosen["setup_score"]),
+                    "stress_level": stress_level,
+                    "trade_mode": chosen["suggested_mode"] if idea.action == "BUY" else idea.trade_mode,
+                    "entry_price": chosen["recommended_entry"] if idea.action == "BUY" else idea.entry_price,
+                    "stop_price": chosen["recommended_stop"] if idea.action == "BUY" else idea.stop_price,
+                    "take_profit_price": chosen["recommended_target"] if idea.action == "BUY" else idea.take_profit_price,
+                    "expected_round_trip_cost_pct": chosen["expected_round_trip_cost_pct"],
+                    "expected_first_move_pct": chosen["expected_first_move_pct"],
+                    "risk_pct": chosen["recommended_risk_pct"] if idea.action == "BUY" else 0,
+                    "position_size_usd": chosen["max_position_usd"] if idea.action == "BUY" else 0,
+                    "max_hold_minutes": chosen["max_hold_minutes"] if idea.action == "BUY" else idea.max_hold_minutes,
+                    "signal_1": signals[0] if len(signals) > 0 else idea.signal_1,
+                    "signal_2": signals[1] if len(signals) > 1 else idea.signal_2,
+                    "optional_signal_3": signals[2] if len(signals) > 2 else idea.optional_signal_3,
+                }
+            )
 
         print(
-            f"Raptor decision: {idea.action} {idea.symbol} "
-            f"(confidence {idea.confidence})"
+            f"Raptor decision: {idea.action} {idea.symbol} • {idea.trade_mode} • "
+            f"score {idea.setup_score} • stress {idea.stress_level}/4"
         )
 
-        if idea.action.upper() != "BUY":
-            _record_signal(conn, "Raptor", "MEME", idea, "Circuit not called: no BUY proposal.")
-            _set_agent(
-                conn,
-                "Raptor",
-                "READY",
-                f"Meme paper decision ({market_source}): {idea.action} {idea.symbol}; no paper trade opened",
+        if idea.action != "BUY" or not chosen:
+            _record_signal(
+                conn, "Raptor", "MEME", idea,
+                "Circuit not called: no BUY proposal.",
+                session_id=session_id, market_source=market_source,
             )
-            print("Circuit: skipped — no BUY proposal to risk-review.")
-            return
+            _set_agent(
+                conn, "Raptor", "READY",
+                f"{idea.action} {idea.symbol} • score {idea.setup_score} • {idea.thesis[:90]}",
+            )
+            return False
+
+        try:
+            absolute_max = float(os.getenv("DARWIN_MEME_PAPER_NOTIONAL_USD", "40"))
+        except ValueError:
+            absolute_max = 40.0
 
         decision, risk_text = _risk_review(
             conn,
             "MEME",
             idea,
-            max_notional=float(os.getenv("DARWIN_MEME_PAPER_NOTIONAL_USD", "10")),
-            daily_stop=float(os.getenv("DARWIN_MEME_PAPER_DAILY_STOP_USD", "5")),
+            max_notional=min(absolute_max, float(chosen["max_position_usd"])),
+            daily_stop=float(os.getenv("DARWIN_MEME_PAPER_DAILY_STOP_USD", "6")),
+            session_state=session_state,
         )
         model_budget[0] += 1
 
-        signal_id = _record_signal(conn, "Raptor", "MEME", idea, risk_text)
+        signal_id = _record_signal(
+            conn, "Raptor", "MEME", idea, risk_text,
+            session_id=session_id, market_source=market_source,
+        )
+
         opened = False
         if decision and decision.approved:
             cap = min(
-                float(os.getenv("DARWIN_MEME_PAPER_NOTIONAL_USD", "10")),
-                decision.max_notional_usd,
+                absolute_max,
+                float(chosen["max_position_usd"]),
+                float(idea.position_size_usd),
+                float(decision.max_notional_usd),
             )
             opened = _open_paper_trade(
                 conn,
@@ -922,19 +987,31 @@ def _moonshot_cycle(conn, model_budget: list[int], max_model_calls: int) -> None
                 "MEME",
                 idea,
                 cap,
-                prices.get(idea.symbol.upper()),
+                prices.get(str(idea.symbol).upper()),
+                session_id=session_id,
             )
 
         _set_agent(
             conn,
             "Raptor",
             "READY",
-            f"Meme paper decision ({market_source}): {idea.action} {idea.symbol}; "
-            + ("paper trade opened" if opened else "no paper trade opened"),
+            (
+                f"{idea.trade_mode} {idea.symbol} • score {idea.setup_score} • "
+                + ("PAPER TRADE OPEN" if opened else "risk gate/no fill")
+            ),
         )
+        if opened:
+            print(
+                f"Raptor paper entry: {idea.symbol} • {idea.trade_mode} • "
+                f"USD {min(float(idea.position_size_usd), float(decision.max_notional_usd)):.2f} notional • "
+                f"risk {idea.risk_pct:.2f}% equity"
+            )
+        return opened
+
     except Exception as exc:
         _set_agent(conn, "Raptor", "READY", f"Solana scan error: {str(exc)[:140]}")
         print("Raptor Solana scan error:", exc)
+        return False
 
 
 def _alpaca_bars(symbols: list[str]):
