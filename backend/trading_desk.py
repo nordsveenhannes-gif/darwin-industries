@@ -144,14 +144,31 @@ def _history(conn, asset_class: str, symbol: str, limit: int = 40):
     return [dict(r) for r in reversed(rows)]
 
 
-def _record_signal(conn, agent: str, asset_class: str, idea, risk_text: str = "") -> int:
+def _record_signal(
+    conn,
+    agent: str,
+    asset_class: str,
+    idea,
+    risk_text: str = "",
+    *,
+    session_id: int | None = None,
+    market_source: str | None = None,
+) -> int:
+    signals = [
+        getattr(idea, "signal_1", ""),
+        getattr(idea, "signal_2", ""),
+        getattr(idea, "optional_signal_3", ""),
+    ]
+    signals = [str(x) for x in signals if str(x).strip()]
     cur = conn.execute(
         """
         INSERT INTO trade_signals(
             agent, asset_class, symbol, action, confidence, thesis,
-            status, risk_decision, created_at
+            status, risk_decision, created_at, session_id, token_address,
+            trade_mode, setup_score, stress_level, signals_json,
+            expected_round_trip_cost_pct, expected_first_move_pct, market_source
         )
-        VALUES (?, ?, ?, ?, ?, ?, 'PAPER_ONLY', ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, 'PAPER_ONLY', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             agent,
@@ -162,6 +179,15 @@ def _record_signal(conn, agent: str, asset_class: str, idea, risk_text: str = ""
             idea.thesis,
             risk_text or None,
             now_iso(),
+            session_id,
+            getattr(idea, "token_address", None),
+            getattr(idea, "trade_mode", None),
+            getattr(idea, "setup_score", None),
+            getattr(idea, "stress_level", None),
+            json.dumps(signals, ensure_ascii=False),
+            getattr(idea, "expected_round_trip_cost_pct", None),
+            getattr(idea, "expected_first_move_pct", None),
+            market_source,
         ),
     )
     conn.commit()
@@ -175,17 +201,37 @@ def _open_paper_trade(
     idea,
     notional_usd: float,
     market_price: float | None,
+    *,
+    session_id: int | None = None,
 ) -> bool:
     if idea.action.upper() != "BUY" or not market_price:
         return False
     if not idea.stop_price or not idea.take_profit_price:
         return False
 
-    existing = conn.execute(
-        "SELECT 1 FROM paper_trades WHERE asset_class=? AND status='OPEN' LIMIT 1",
-        (asset_class,),
+    duplicate = conn.execute(
+        "SELECT 1 FROM paper_trades WHERE asset_class=? AND symbol=? AND status='OPEN' LIMIT 1",
+        (asset_class, idea.symbol),
     ).fetchone()
-    if existing:
+    if duplicate:
+        return False
+
+    max_open = 1
+    if asset_class == "MEME":
+        try:
+            max_open = int(os.getenv("DARWIN_MEME_MAX_OPEN_TRADES", "3"))
+        except ValueError:
+            max_open = 3
+        max_open = max(1, min(max_open, 5))
+
+    open_count = int(
+        conn.execute(
+            "SELECT COUNT(*) AS n FROM paper_trades WHERE asset_class=? AND status='OPEN'",
+            (asset_class,),
+        ).fetchone()["n"]
+        or 0
+    )
+    if open_count >= max_open:
         return False
 
     slippage_bps = _sim_slippage_bps(asset_class)
@@ -193,9 +239,9 @@ def _open_paper_trade(
     if not (idea.stop_price < entry_price < idea.take_profit_price):
         return False
 
-    max_risk_pct = 0.06 if asset_class == "MEME" else 0.025
-    risk_pct = (entry_price - idea.stop_price) / entry_price
-    if risk_pct <= 0 or risk_pct > max_risk_pct:
+    max_price_risk = 0.10 if asset_class == "MEME" else 0.025
+    price_risk_fraction = (entry_price - idea.stop_price) / entry_price
+    if price_risk_fraction <= 0 or price_risk_fraction > max_price_risk:
         return False
 
     max_hold = getattr(idea, "max_hold_minutes", None)
@@ -203,6 +249,7 @@ def _open_paper_trade(
         max_hold = 390
 
     entry_fee = _sim_fee_usd(asset_class, notional_usd)
+    initial_risk_usd = notional_usd * price_risk_fraction
 
     conn.execute(
         """
@@ -210,9 +257,10 @@ def _open_paper_trade(
             signal_id, asset_class, symbol, side, notional_usd,
             entry_price, stop_price, target_price, max_hold_minutes,
             status, gross_pnl_usd, fees_usd, slippage_bps, pnl_usd,
-            stop_text, target_text, opened_at
+            stop_text, target_text, opened_at, session_id, token_address,
+            trade_mode, setup_score, stress_level, risk_pct_equity, initial_risk_usd
         )
-        VALUES (?, ?, ?, 'BUY', ?, ?, ?, ?, ?, 'OPEN', 0, ?, ?, 0, ?, ?, ?)
+        VALUES (?, ?, ?, 'BUY', ?, ?, ?, ?, ?, 'OPEN', 0, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             signal_id,
@@ -228,8 +276,20 @@ def _open_paper_trade(
             idea.invalidation,
             idea.take_profit_logic,
             now_iso(),
+            session_id,
+            getattr(idea, "token_address", None),
+            getattr(idea, "trade_mode", None),
+            getattr(idea, "setup_score", None),
+            getattr(idea, "stress_level", None),
+            getattr(idea, "risk_pct", None),
+            initial_risk_usd,
         ),
     )
+    if session_id is not None:
+        conn.execute(
+            "UPDATE trading_sessions SET last_trade_at=? WHERE id=?",
+            (now_iso(), session_id),
+        )
     conn.commit()
     return True
 
