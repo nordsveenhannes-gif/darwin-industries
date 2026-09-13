@@ -21,3 +21,24 @@ jobs:
         run: python -m compileall -q backend tests
       - name: Unit tests
         run: python -m unittest discover -s tests -v
+
+      # Temporary snapshot-export step on this branch only.
+      # It checks out the exact requested current main commit into a separate folder,
+      # removes Git metadata and any local .env, then uploads that clean tree.
+      - name: Check out exact snapshot commit
+        uses: actions/checkout@v4
+        with:
+          ref: 1569fd1fa6e9ee693999bc87b36155ada33bf4ec
+          path: snapshot
+      - name: Strip non-project metadata and secrets
+        run: |
+          rm -rf snapshot/.git
+          rm -f snapshot/.env
+      - name: Upload clean project snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: shenanigan-systems-current-snapshot
+          path: snapshot
+          include-hidden-files: true
+          if-no-files-found: error
+          compression-level: 9
