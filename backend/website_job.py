@@ -365,6 +365,8 @@ def main() -> None:
         "Customer completed the website goals, audience, conversion, design, functionality, commercial-facts and staging-asset questionnaire.",
     )
     _set_agent(conn, "Mercury", "READY", "Client website brief received")
+    _update(conn, project_id, status="SCOPE_REVIEW")
+    print("Client brief received. Darwin is now working: scope review -> design -> UX -> QA -> staging.")
     seed_launch_questions(project_id)
     _event(
         conn,
@@ -425,61 +427,79 @@ CLIENT BRIEF:
             )
             print(f"Scope note: deferred optional out-of-scope items: {items}")
         else:
-            _update(conn, project_id, status="SCOPE_DECISION_NEEDED")
-            _set_agent(
-                conn,
-                "Mercury",
-                "WAITING_CLIENT",
-                "A core requested feature conflicts with the accepted scope",
-            )
-            scope_answer = collect_client_answers(
-                project_id,
-                args.business_name,
-                questions=[
-                    {
-                        "key": "scope_decision",
-                        "question": f"A core requirement is outside the accepted quote: {items}. How should we proceed?",
-                        "why": (
-                            "This requirement changes the architecture or deliverables enough that Darwin "
-                            "should not silently omit it or deliver unquoted work."
-                        ),
-                        "required_for": "STAGING",
-                        "options": [
-                            "Proceed with the original quoted scope and defer the extra items",
-                            "Pause the project and prepare a revised quotation / change order",
-                        ],
-                    }
-                ],
-                port=8790,
-                heading="One scope decision is needed before we continue.",
-                open_browser=args.demo,
-            )
-            choice = scope_answer.get("scope_decision", "")
-            if choice.startswith("Pause"):
-                _update(conn, project_id, status="CHANGE_ORDER_NEEDED")
+            if args.demo:
+                # The fake-customer demo is specifically a fulfillment test. Do not interrupt it
+                # with a second questionnaire: keep the purchased base scope, record the conflict,
+                # and let the agents build what was actually quoted.
+                client_brief["deferred_out_of_scope_items"] = items
+                _event(
+                    conn,
+                    project_id,
+                    "Mercury",
+                    "DEMO_SCOPE_DEFERRED",
+                    (
+                        "Demo continued with the accepted base scope. A real customer would receive "
+                        f"a change-order decision for: {items}"
+                    ),
+                )
+                print(f"Demo scope: continuing base build; deferred change-order item(s): {items}")
+            else:
+                _update(conn, project_id, status="SCOPE_DECISION_NEEDED")
+                _set_agent(
+                    conn,
+                    "Mercury",
+                    "WAITING_CLIENT",
+                    "A core requested feature conflicts with the accepted scope",
+                )
+                scope_answer = collect_client_answers(
+                    project_id,
+                    args.business_name,
+                    questions=[
+                        {
+                            "key": "scope_decision",
+                            "question": f"A core requirement is outside the accepted quote: {items}. How should we proceed?",
+                            "why": (
+                                "This requirement changes the architecture or deliverables enough that Darwin "
+                                "should not silently omit it or deliver unquoted work."
+                            ),
+                            "required_for": "STAGING",
+                            "options": [
+                                "Proceed with the original quoted scope and defer the extra items",
+                                "Pause the project and prepare a revised quotation / change order",
+                            ],
+                        }
+                    ],
+                    port=8790,
+                    heading="One scope decision is needed before we continue.",
+                    open_browser=False,
+                )
+                choice = scope_answer.get("scope_decision", "")
+                if choice.startswith("Pause"):
+                    _update(conn, project_id, status="CHANGE_ORDER_NEEDED")
+                    _event(
+                        conn,
+                        project_id,
+                        "Customer",
+                        "CHANGE_ORDER_REQUESTED",
+                        f"Customer chose to pause the base build and re-quote: {items}",
+                    )
+                    _set_agent(conn, "Mercury", "READY", "Website project paused for change order")
+                    print("\nThe requested functionality exceeds the accepted quote.")
+                    print("Darwin paused the build instead of hiding extra costs or doing unquoted work.")
+                    conn.close()
+                    return
+                client_brief["deferred_out_of_scope_items"] = items
                 _event(
                     conn,
                     project_id,
                     "Customer",
-                    "CHANGE_ORDER_REQUESTED",
-                    f"Customer chose to pause the base build and re-quote: {items}",
+                    "SCOPE_DEFERRED",
+                    f"Customer chose to continue with the accepted base scope and defer: {items}",
                 )
-                _set_agent(conn, "Mercury", "READY", "Website project paused for change order")
-                print("\nThe requested functionality exceeds the accepted quote.")
-                print("Darwin paused the build instead of hiding extra costs or doing unquoted work.")
-                conn.close()
-                return
-            client_brief["deferred_out_of_scope_items"] = items
-            _event(
-                conn,
-                project_id,
-                "Customer",
-                "SCOPE_DEFERRED",
-                f"Customer chose to continue with the accepted base scope and defer: {items}",
-            )
 
     _set_agent(conn, "Mercury", "READY", "Accepted website scope confirmed")
     _update(conn, project_id, status="DESIGNING")
+    print("Forge is designing the website specification now.")
 
     try:
         _set_agent(conn, "Forge", "WORKING", f"Architecting premium website for {args.business_name}")
@@ -573,6 +593,8 @@ approved=false only when a material staging UX/content issue still needs correct
                 raise RuntimeError("Nova returned an unexpected UX review.")
             return result
 
+        _update(conn, project_id, status="UX_REVIEW")
+        print("Forge draft complete. Nova is reviewing the customer experience.")
         _set_agent(conn, "Nova", "WORKING", "Reviewing customer UX and conversion flow")
         ux = run_ux_review(spec)
 
@@ -634,6 +656,8 @@ turned into fabricated staging copy.
 
         _set_agent(conn, "Nova", "READY", f"Website staging UX reviewed: {ux.score}/100")
 
+        _update(conn, project_id, status="STAGING_QA")
+        print("Nova review complete. Sentinel is QA-checking the private staging build.")
         _set_agent(conn, "Sentinel", "WORKING", "QA checking private staging safety and customer trust")
 
         def run_project_qa(current_spec: WebsiteBuildSpec, current_ux: UXReview) -> str:
@@ -794,9 +818,10 @@ Do not treat final launch compliance, domain credentials, final legal copy or pa
 
             staging_questions = [q for q in plan.questions if q.required_for == "STAGING"]
 
-            if plan.staging_can_continue:
-                # Safe omissions / launch deferrals are not a reason to make the client fill
-                # another form. Keep the agents working and record what was deferred.
+            if args.demo or plan.staging_can_continue:
+                # Demo mode must be one-brief -> agents-work -> staging-result. Any uncertainty
+                # after that brief is omitted/deferred and shown in the project record rather than
+                # opening another browser form.
                 followup = {}
                 if staging_questions or plan.safe_omissions:
                     _event(
@@ -805,10 +830,12 @@ Do not treat final launch compliance, domain credentials, final legal copy or pa
                         "Mercury",
                         "CLARIFICATION_AUTO_DEFERRED",
                         (
-                            "Darwin determined staging can continue without another client interruption. "
-                            "Uncertain facts will be omitted or deferred until launch/client review."
+                            "Darwin continued staging without another client interruption. "
+                            "Uncertain facts were omitted or deferred for customer review/launch."
                         ),
                     )
+                    if args.demo:
+                        print("QA found unresolved details, but demo mode is continuing by omitting/defering them.")
             elif staging_questions:
                 dynamic_questions = []
                 for index, q in enumerate(staging_questions, 1):
@@ -909,6 +936,8 @@ Rules:
         _set_agent(conn, "Sentinel", "READY", "Private staging passed claims/scope QA")
         _update(conn, project_id, status="STAGING_QA_PASSED")
 
+        _update(conn, project_id, status="RENDERING_STAGING")
+        print("Staging QA passed. Midas is rendering and validating the website.")
         _set_agent(conn, "Midas", "WORKING", "Rendering reusable premium website system")
         image_files = []
         if args.demo or args.confirm_asset_rights:
