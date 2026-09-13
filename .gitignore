@@ -15,3 +15,5 @@ build/
 .idea/
 
 builds/
+
+client_uploads/
