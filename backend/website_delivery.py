@@ -95,10 +95,11 @@ Shenanigan Systems
   <p style="color:#7f788a;font-size:12px;margin-top:28px">Your domain stays under your control. If you cancel hosting & care, you can take the website files with you.</p>
 </div></body></html>"""
 
+    sender = from_email if "<" in from_email else f"{CLIENT_NAME} <{from_email}>"
     resend.api_key = api_key
     response = resend.Emails.send(
         {
-            "from": from_email,
+            "from": sender,
             "to": [recipient],
             "subject": subject,
             "text": body,
