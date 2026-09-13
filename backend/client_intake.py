@@ -12,6 +12,7 @@ from pathlib import Path
 from urllib.parse import parse_qs
 
 from backend.storage import connect, init_db, now_iso
+from backend.branding import CLIENT_NAME, client_logo_css, client_logo_html
 
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -35,7 +36,7 @@ INITIAL_QUESTIONS = [
     {
         "key": "client_email",
         "question": "Where should we email the finished proposal and staging review?",
-        "why": "Darwin uses this only for this website project and project follow-up.",
+        "why": "Shenanigan Systems uses this only for this website project and project follow-up.",
         "required_for": "STAGING",
         "input_type": "email",
         "placeholder": "you@business.com",
@@ -364,7 +365,7 @@ def _page(
         <section class="uploads">
           <p class="eyebrow">Your images</p>
           <h2>Upload the pictures you actually want us to use.</h2>
-          <p>Optional, but recommended. Categorising them helps Darwin place the right image in the right part of the site instead of guessing.</p>
+          <p>Optional, but recommended. Categorising them helps our design system place the right image in the right part of the site instead of guessing.</p>
           {current}
           <div class="upload-grid">
             <label class="upload-card">Logo / brand mark
@@ -372,19 +373,19 @@ def _page(
               <input type="file" name="logo_files" accept="image/png,image/jpeg,image/webp">
             </label>
             <label class="upload-card">Hero / homepage
-              <span>Select several wide/lifestyle images — Darwin can use up to 4 in the hero area</span>
+              <span>Select several wide/lifestyle images — we can use up to 4 in the hero area</span>
               <input type="file" name="hero_files" accept="image/png,image/jpeg,image/webp" multiple>
             </label>
             <label class="upload-card">Products / services
-              <span>Select several product/service photos — Darwin distributes them across cards</span>
+              <span>Select several product/service photos — we distribute them across cards</span>
               <input type="file" name="product_files" accept="image/png,image/jpeg,image/webp" multiple>
             </label>
             <label class="upload-card">About / team / location
-              <span>Select several team/showroom/location photos — Darwin builds an image gallery</span>
+              <span>Select several team/showroom/location photos — we build an image gallery</span>
               <input type="file" name="about_files" accept="image/png,image/jpeg,image/webp" multiple>
             </label>
           </div>
-          <p class="small">You can select multiple files at once for hero, products/services and about. Maximum 5 MB per image, 24 images per brief. Darwin prioritises these over automatically discovered imagery.</p>
+          <p class="small">You can select multiple files at once for hero, products/services and about. Maximum 5 MB per image, 24 images per brief. We prioritise these over automatically discovered imagery.</p>
         </section>
         """
 
@@ -407,11 +408,14 @@ textarea{{resize:vertical}}textarea:focus,select:focus,input:focus{{outline:2px 
 .upload-card{{font:700 14px/1.3 system-ui;padding:16px;background:#fff;border:1px solid #ddd4c8;border-radius:14px;cursor:pointer}}.upload-card span{{display:block;color:var(--muted);font-size:11px;font-weight:500;margin:5px 0 12px}}.upload-card input{{width:100%;font:12px system-ui}}
 button{{border:0;border-radius:999px;background:var(--ink);color:white;padding:14px 24px;font-weight:800;cursor:pointer}}.small{{font-size:12px;color:var(--muted);margin-top:14px}}.good{{color:#285e48!important}}
 @media(max-width:700px){{.upload-grid{{grid-template-columns:1fr}}}}
+{client_logo_css()}
+.client-brand{margin-bottom:22px}.client-brand .ss-word{font-size:13px}
 </style>
 </head>
 <body>
 <main>
-<p class="eyebrow">Darwin Industries · Client onboarding</p>
+<div class="client-brand">{client_logo_html()}</div>
+<p class="eyebrow">{CLIENT_NAME} · Client onboarding</p>
 <h1>{html.escape(heading)}</h1>
 <p class="intro">Project: <strong>{html.escape(business_name)}</strong>. Your answers become the working brief for the design team.</p>
 <div class="notice">Do not enter passwords, API keys, card details or domain credentials here. Those are handled separately through secure owner-controlled access if the project reaches launch.</div>
@@ -419,7 +423,7 @@ button{{border:0;border-radius:999px;background:var(--ink);color:white;padding:1
 {''.join(fields)}
 {assets_html}
 <button type="submit">Send brief and start the build</button>
-<p class="small">After this, Darwin starts the design work. If the project is deliverable within the agreed scope, the next client-facing message should be the finished proposal/staging review — not another copy of this form.</p>
+<p class="small">After this, our design system starts the work. If the project is deliverable within the agreed scope, the next client-facing message should be the finished proposal/staging review — not another copy of this form.</p>
 </form>
 </main>
 </body></html>"""
@@ -565,7 +569,7 @@ div{{max-width:620px;background:white;padding:42px;border-radius:24px}}h1{{font-
     actual_port = int(server.server_port)
     print("\n=== CLIENT WEBSITE QUESTIONNAIRE ===")
     print(f"Open: http://127.0.0.1:{actual_port}")
-    print("Darwin is waiting for the customer's brief before starting the design.\n")
+    print("Shenanigan Systems is waiting for the customer's brief before starting the design.\n")
 
     if open_browser:
         threading.Timer(
