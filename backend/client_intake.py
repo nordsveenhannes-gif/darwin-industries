@@ -27,8 +27,8 @@ UPLOAD_FIELDS = {
     "about_files": "about",
 }
 MAX_UPLOAD_BYTES = 5_000_000
-MAX_UPLOAD_FILES = 12
-MAX_FORM_BYTES = 40_000_000
+MAX_UPLOAD_FILES = 24
+MAX_FORM_BYTES = 100_000_000
 
 
 INITIAL_QUESTIONS = [
@@ -372,19 +372,19 @@ def _page(
               <input type="file" name="logo_files" accept="image/png,image/jpeg,image/webp">
             </label>
             <label class="upload-card">Hero / homepage
-              <span>Wide lifestyle or flagship image</span>
+              <span>Select several wide/lifestyle images — Darwin can use up to 4 in the hero area</span>
               <input type="file" name="hero_files" accept="image/png,image/jpeg,image/webp" multiple>
             </label>
             <label class="upload-card">Products / services
-              <span>Photos that belong on product or service cards</span>
+              <span>Select several product/service photos — Darwin distributes them across cards</span>
               <input type="file" name="product_files" accept="image/png,image/jpeg,image/webp" multiple>
             </label>
             <label class="upload-card">About / team / location
-              <span>People, showroom, workshop or location photos</span>
+              <span>Select several team/showroom/location photos — Darwin builds an image gallery</span>
               <input type="file" name="about_files" accept="image/png,image/jpeg,image/webp" multiple>
             </label>
           </div>
-          <p class="small">Maximum 5 MB per image. Darwin will prefer your uploaded images over automatically discovered website imagery.</p>
+          <p class="small">You can select multiple files at once for hero, products/services and about. Maximum 5 MB per image, 24 images per brief. Darwin prioritises these over automatically discovered imagery.</p>
         </section>
         """
 
