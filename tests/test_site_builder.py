@@ -95,6 +95,30 @@ class WebsiteBuilderTests(unittest.TestCase):
             self.assertIn("--accent:#AA8844", css)
             self.assertIn("--heading-font:Inter", css)
 
+    def test_categorized_client_images_are_placed_by_role(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "site"
+            render_site(
+                self.sample_spec(),
+                output,
+                logo_file="assets/client-logo-01.png",
+                hero_image="assets/client-hero-01.jpg",
+                product_images=[
+                    "assets/client-product-01.jpg",
+                    "assets/client-product-02.jpg",
+                ],
+                about_image="assets/client-about-01.jpg",
+            )
+
+            home = (output / "index.html").read_text(encoding="utf-8")
+            first_collection = (output / "infrared-saunas.html").read_text(encoding="utf-8")
+            about = (output / "about.html").read_text(encoding="utf-8")
+
+            self.assertIn("assets/client-logo-01.png", home)
+            self.assertIn("assets/client-hero-01.jpg", home)
+            self.assertIn("assets/client-product-01.jpg", first_collection)
+            self.assertIn("assets/client-about-01.jpg", about)
+
     def test_export_creates_standalone_application(self):
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp) / "project"
