@@ -144,6 +144,81 @@ def _history(conn, asset_class: str, symbol: str, limit: int = 40):
     return [dict(r) for r in reversed(rows)]
 
 
+def _map_open_meme_prices(open_rows, pairs) -> dict[str, float]:
+    """Map stored open positions to the most liquid live DEX pair for their contract."""
+    wanted: dict[str, list[str]] = {}
+    for row in open_rows:
+        token = str(row["token_address"] or "").strip()
+        symbol = str(row["symbol"] or "").upper().strip()
+        if token and symbol:
+            wanted.setdefault(token, []).append(symbol)
+
+    best: dict[str, tuple[float, float]] = {}
+    for pair in pairs or []:
+        if not isinstance(pair, dict):
+            continue
+        base = pair.get("baseToken") or {}
+        token = str(base.get("address") or "").strip()
+        if token not in wanted:
+            continue
+        price = _number(pair.get("priceUsd"))
+        if not price:
+            continue
+        liquidity = _number((pair.get("liquidity") or {}).get("usd")) or 0.0
+        current = best.get(token)
+        if current is None or liquidity > current[0]:
+            best[token] = (liquidity, price)
+
+    prices: dict[str, float] = {}
+    for token, symbols in wanted.items():
+        chosen = best.get(token)
+        if not chosen:
+            continue
+        for symbol in symbols:
+            prices[symbol] = float(chosen[1])
+    return prices
+
+
+def _open_meme_prices(conn) -> dict[str, float]:
+    """
+    Refresh open positions independently of the rotating discovery universe.
+
+    A token may disappear from the top-flow list after entry; stop/target/time exits still
+    need a current observed price. This keeps open PAPER positions monitorable until closed.
+    """
+    rows = conn.execute(
+        """
+        SELECT DISTINCT symbol,token_address
+        FROM paper_trades
+        WHERE asset_class='MEME' AND status='OPEN'
+          AND token_address IS NOT NULL AND token_address!=''
+        """
+    ).fetchall()
+    if not rows:
+        return {}
+
+    addresses = []
+    for row in rows:
+        address = str(row["token_address"] or "").strip()
+        if address and address not in addresses:
+            addresses.append(address)
+
+    prices: dict[str, float] = {}
+    for start in range(0, len(addresses), 30):
+        chunk = addresses[start : start + 30]
+        try:
+            pairs = _http_json(
+                DEXSCREENER_TOKENS.format(addresses=",".join(chunk)),
+                timeout=10,
+            )
+        except Exception as exc:
+            print("Open-position price refresh failed:", exc)
+            continue
+        if isinstance(pairs, list):
+            prices.update(_map_open_meme_prices(rows, pairs))
+    return prices
+
+
 def _record_signal(
     conn,
     agent: str,
@@ -783,6 +858,9 @@ def _moonshot_cycle(
             conn,
             session_state=session_state,
         )
+
+        # Open positions are monitored even when they drop out of the rotating discovery list.
+        prices.update(_open_meme_prices(conn))
 
         for line in _close_paper_trades(conn, "MEME", prices):
             print("Raptor paper exit:", line)
