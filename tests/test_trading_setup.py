@@ -7,6 +7,7 @@ from backend.meme_strategy import (
     required_score,
     score_candidates,
 )
+from backend.trading_desk import _map_open_meme_prices
 
 
 def candles():
@@ -118,6 +119,32 @@ class AdaptiveMemeStrategyTests(unittest.TestCase):
         self.assertTrue(scored["friction_pass"])
         self.assertTrue(scored["technical_pass"])
         self.assertLessEqual(scored["recommended_risk_pct"], 2.0)
+
+    def test_open_position_price_uses_contract_and_most_liquid_pair(self):
+        rows = [
+            {"symbol": "MEME", "token_address": "mint-1"},
+            {"symbol": "OTHER", "token_address": "mint-2"},
+        ]
+        pairs = [
+            {
+                "baseToken": {"address": "mint-1"},
+                "priceUsd": "1.23",
+                "liquidity": {"usd": 10000},
+            },
+            {
+                "baseToken": {"address": "mint-1"},
+                "priceUsd": "1.25",
+                "liquidity": {"usd": 50000},
+            },
+            {
+                "baseToken": {"address": "mint-2"},
+                "priceUsd": "0.42",
+                "liquidity": {"usd": 20000},
+            },
+        ]
+        prices = _map_open_meme_prices(rows, pairs)
+        self.assertEqual(prices["MEME"], 1.25)
+        self.assertEqual(prices["OTHER"], 0.42)
 
     def test_hard_gate_never_relaxes_for_thin_token(self):
         candidate = {
