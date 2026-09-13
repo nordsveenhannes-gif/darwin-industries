@@ -678,10 +678,22 @@ def _dexscreener_meme_candidates() -> list[dict]:
     )[:candidate_limit]
 
 
-def _meme_market_bundle(conn, *, stress_level: int, session_state: dict):
+def _meme_market_bundle(conn, *, session_state: dict):
     raw_candidates = _dexscreener_meme_candidates()
     if not raw_candidates:
-        return [], {}, "dexscreener+geckoterminal"
+        return [], {}, "dexscreener+geckoterminal", 0
+
+    active_candidates = [
+        c for c in raw_candidates
+        if float(c.get("liquidity_usd") or 0) >= 15000
+        and int(c.get("activity_h1") or 0) >= 20
+    ]
+    stress_level = compute_stress_level(
+        minutes_since_trade=float(session_state["minutes_since_trade"]),
+        active_market=len(active_candidates) >= 2,
+        consecutive_losses=int(session_state["consecutive_losses"]),
+        defensive_mode=bool(session_state["defensive_mode"]),
+    )
 
     try:
         max_notional = float(os.getenv("DARWIN_MEME_PAPER_NOTIONAL_USD", "40"))
@@ -749,7 +761,7 @@ def _meme_market_bundle(conn, *, stress_level: int, session_state: dict):
         )
         details["local_price_history"] = _history(conn, "MEME", str(details["symbol"]), 40)
 
-    return scored, prices, "dexscreener+geckoterminal"
+    return scored, prices, "dexscreener+geckoterminal", stress_level
 
 
 def _moonshot_cycle(
@@ -759,18 +771,16 @@ def _moonshot_cycle(
     *,
     session_id: int,
     session_state: dict,
-    stress_level: int,
-) -> bool:
+) -> tuple[bool, int]:
     _set_agent(
         conn,
         "Raptor",
         "WORKING",
-        f"Reranking live Solana flow • stress {stress_level}/4 • paper only",
+        "Reranking live Solana flow • adaptive stress • paper only",
     )
     try:
-        bundle, prices, market_source = _meme_market_bundle(
+        bundle, prices, market_source, stress_level = _meme_market_bundle(
             conn,
-            stress_level=stress_level,
             session_state=session_state,
         )
 
@@ -779,7 +789,7 @@ def _moonshot_cycle(
 
         if not bundle:
             _set_agent(conn, "Raptor", "READY", "No tradeable Solana candidates in current flow")
-            return False
+            return False, stress_level
 
         open_rows = conn.execute(
             "SELECT symbol FROM paper_trades WHERE asset_class='MEME' AND status='OPEN'"
@@ -836,7 +846,7 @@ def _moonshot_cycle(
                 session_id=session_id, market_source=market_source,
             )
             _set_agent(conn, "Raptor", "READY", "Session loss stop active; observing only")
-            return False
+            return False, stress_level
 
         if not qualified:
             best = bundle[0]
@@ -880,11 +890,11 @@ def _moonshot_cycle(
                 conn, "Raptor", "READY",
                 f"Watching {best['symbol']} • score {best['setup_score']}/{best['required_score']} • stress {stress_level}/4",
             )
-            return False
+            return False, stress_level
 
         if model_budget[0] + 2 > max_model_calls:
             _set_agent(conn, "Raptor", "READY", "Qualified setup found but model-call guardrail is exhausted")
-            return False
+            return False, stress_level
 
         model_view = [_compact_meme_candidate(item) for item in qualified[:3]]
         idea = Runner.run_sync(
@@ -951,7 +961,7 @@ def _moonshot_cycle(
                 conn, "Raptor", "READY",
                 f"{idea.action} {idea.symbol} • score {idea.setup_score} • {idea.thesis[:90]}",
             )
-            return False
+            return False, stress_level
 
         try:
             absolute_max = float(os.getenv("DARWIN_MEME_PAPER_NOTIONAL_USD", "40"))
@@ -1006,12 +1016,12 @@ def _moonshot_cycle(
                 f"USD {min(float(idea.position_size_usd), float(decision.max_notional_usd)):.2f} notional • "
                 f"risk {idea.risk_pct:.2f}% equity"
             )
-        return opened
+        return opened, stress_level
 
     except Exception as exc:
         _set_agent(conn, "Raptor", "READY", f"Solana scan error: {str(exc)[:140]}")
         print("Raptor Solana scan error:", exc)
-        return False
+        return False, 0
 
 
 def _alpaca_bars(symbols: list[str]):
