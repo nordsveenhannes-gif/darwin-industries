@@ -19,6 +19,7 @@ from backend.pipeline import (
     score_researched_prospects,
 )
 from backend.research import research_batch
+from backend.branding import INTERNAL_NAME
 from backend.storage import (
     connect,
     init_db,
@@ -52,7 +53,7 @@ def _list_env(name: str, fallback: list[str]) -> list[str]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Run Darwin Industries as a bounded autonomous workday."
+        description="Run Hosko’s Shady Shenanigans as a bounded autonomous workday."
     )
     parser.add_argument("--hours", type=float, default=6.0)
     parser.add_argument("--cycle-minutes", type=int, default=60)
@@ -85,7 +86,7 @@ def main() -> None:
     budget_idle_announced = False
     sending = email_sending_enabled()
 
-    print("\n=== DARWIN FULL-COMPANY WORKDAY STARTED ===")
+    print(f"\n=== {INTERNAL_NAME.upper()} — FULL-COMPANY WORKDAY STARTED ===")
     print(f"Target duration: {hours:g} hour(s)")
     print(f"Cycle interval: {cycle_minutes} minute(s)")
     print(f"Model-call guardrail: {max_calls}")
@@ -108,7 +109,7 @@ def main() -> None:
                 if not budget_idle_announced:
                     print(
                         f"API guardrail reached ({calls_used}/{max_calls}). "
-                        f"Darwin will remain idle for the remaining ~{remaining} minute(s)."
+                        f"The company will remain idle for the remaining ~{remaining} minute(s)."
                     )
                     if run_id is not None:
                         save_event(
@@ -318,7 +319,7 @@ def main() -> None:
             ended=True,
         )
         end_shift(conn)
-        print("\n=== DARWIN FULL-COMPANY WORKDAY COMPLETE ===")
+        print(f"\n=== {INTERNAL_NAME.upper()} — FULL-COMPANY WORKDAY COMPLETE ===")
         print(f"Cycles: {cycles}")
         print(f"Estimated model-call units used: {calls_used}/{max_calls}")
 
@@ -333,7 +334,7 @@ def main() -> None:
             ended=True,
         )
         end_shift(conn)
-        print("\nDarwin full-company workday stopped safely.")
+        print(f"\n{INTERNAL_NAME} full-company workday stopped safely.")
 
     print("Review company with: python -m backend.status")
     print("Review pipeline with: python -m backend.prospects")
