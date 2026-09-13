@@ -973,9 +973,9 @@ Rules:
         client_assets = _prepare_client_assets(project_id, site_dir)
         has_client_images = any(client_assets.values())
 
-        hero_image = client_assets["hero"][0] if client_assets["hero"] else None
+        hero_images = list(client_assets["hero"])
         product_images = list(client_assets["product"])
-        about_image = client_assets["about"][0] if client_assets["about"] else None
+        about_images = list(client_assets["about"])
         logo_file = client_assets["logo"][0] if client_assets["logo"] else None
 
         if has_client_images:
@@ -994,8 +994,8 @@ Rules:
             # A single first-party social/hero image is safer than guessing which scraped image
             # belongs to which product. Product cards stay intentionally abstract until the client
             # supplies categorized photography.
-            source_images = collect_source_images(args.website, site_dir / "assets", max_images=1)
-            hero_image = source_images[0] if source_images else None
+            source_images = collect_source_images(args.website, site_dir / "assets", max_images=3)
+            hero_images = list(source_images[:3])
             _event(
                 conn,
                 project_id,
@@ -1011,8 +1011,8 @@ Rules:
             spec,
             site_dir,
             logo_file=logo_file,
-            about_image=about_image,
-            hero_image=hero_image,
+            about_images=about_images,
+            hero_images=hero_images,
             product_images=product_images,
         )
         errors = validate_site(site_dir)
