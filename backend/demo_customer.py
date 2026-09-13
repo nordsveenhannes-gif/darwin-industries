@@ -87,7 +87,7 @@ def _send_demo_email(to_email: str, subject: str, body: str) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Run a consented, real-time Darwin customer journey demo."
+        description="Run a consented, real-time Shenanigan Systems customer journey demo."
     )
     parser.add_argument("--business-name", required=True)
     parser.add_argument("--website", required=True)
@@ -124,7 +124,7 @@ def main() -> None:
     journey_id = int(cur.lastrowid)
     conn.commit()
 
-    print(f"\nDarwin customer journey #{journey_id} started.")
+    print(f"\nShenanigan Systems customer journey #{journey_id} started.")
     print("Open the live monitor in another window with: python -m backend.dashboard")
     print("Then visit: http://127.0.0.1:8765\n")
 
@@ -140,7 +140,7 @@ def main() -> None:
         discovery = Runner.run_sync(
             build_customer_discovery(),
             f"""
-Run a consented customer demo for Darwin Industries.
+Run a consented customer demo for Shenanigan Systems.
 
 Business: {args.business_name}
 Website: {args.website}
@@ -285,7 +285,7 @@ Public observation: {discovery.observed_issue}
 Approved internal audit:
 {audit.audit_markdown}
 
-Offer Darwin's 48-hour website lead audit for $129.
+Offer Shenanigan Systems' 48-hour website lead audit for $129.
 Do not invent familiarity, urgency, customers, guarantees, or a payment link.
 Include an easy opt-out.
 """,
@@ -407,12 +407,12 @@ urgency, and includes an easy opt-out.
             "PAYMENT_GATE",
             (
                 "Next real customer step would be payment. Stripe checkout/webhook is not yet wired "
-                "into Darwin, so the demo stops here rather than pretending revenue happened."
+                "into the system, so the demo stops here rather than pretending revenue happened."
             ),
         )
         _set_agent(conn, "Ledger", "READY", "Payment integration is the next customer-journey gap")
         print("\nCustomer demo complete.")
-        print("Darwin stopped at the real payment boundary; no revenue was fabricated.")
+        print("The demo stopped at the real payment boundary; no revenue was fabricated.")
 
     except Exception as exc:
         _update_journey(conn, journey_id, status="ERROR", error_text=str(exc)[:2000])
