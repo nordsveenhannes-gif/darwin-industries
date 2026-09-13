@@ -16,14 +16,14 @@ def main() -> None:
         "SELECT * FROM runs ORDER BY id DESC LIMIT 1"
     ).fetchone()
 
-    print("\n=== DARWIN COMPANY STATUS ===\n")
+    print("\n=== HOSKO'S SHADY SHENANIGANS — COMPANY STATUS ===\n")
 
     if run:
         print(f"Run: #{run['id']}")
         print(f"Status: {run['status']}")
         print(f"Created: {run['created_at']}")
     else:
-        print("No Darwin runs found yet.")
+        print("No company runs found yet.")
 
     agents = conn.execute(
         """
