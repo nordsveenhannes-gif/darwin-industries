@@ -346,3 +346,14 @@ Client-uploaded images take priority. If no client images are supplied, Darwin u
 When staging is ready, Mercury automatically sends the proposal email through the configured Resend account. Demo mode includes the local staging URL. A real customer email uses DARWIN_PUBLIC_STAGING_URL when a public/private staging deployment has been configured; otherwise it sends the commercial proposal without pretending the localhost URL is accessible to the customer.
 
 Mission Control highlights WORKING and WAITING agents, shows their current action, and gives each agent a lightweight character/persona so active work is easier to read at a glance.
+
+
+## Adaptive Trading Desk — six-hour paper shift
+
+Use `run_trading_shift.bat` for the qualification run. It starts Mission Control and keeps the trading desk alive for up to six hours in PAPER mode.
+
+Raptor now separates hard paper tradeability gates from adaptive technical entry criteria. It continuously reranks changing Solana flow, uses 1-minute OHLCV, requires contract identity and minimum liquidity/sell-side evidence, scores independent momentum/structure signals, estimates round-trip execution friction, and supports PROBE, MOMENTUM_SCALP, STRUCTURED_SCALP and TREND_RUNNER paper modes. Technical selectivity can relax through stress levels 0–4 only when the market is active and Raptor has been missing opportunities; hard gates never relax.
+
+Paper risk is sized from a configurable simulated account, normally around 1–1.5% equity and never above 2%. Two consecutive losses reduce activity stress; three consecutive losses or roughly -4R activates defensive mode; roughly -5R stops new meme positions for the rest of the session while observation/exits continue. Up to three bounded meme paper positions may be open at once, and open positions are price-monitored by contract even if they rotate out of the discovery list.
+
+The trading scoreboard records setup mode, score, stress, estimated friction, expected move, realized P&L, initial R risk and expectancy. Live order execution remains disabled. Paper tradeability is not proof of live token safety: mint/freeze authority, holder/deployer concentration, sniper/bundle analysis and wallet-risk checks remain explicit future live-execution gates.
