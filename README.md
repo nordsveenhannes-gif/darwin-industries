@@ -324,3 +324,25 @@ python -m backend.website_release --project-id 1 --domain "https://www.example.c
 ```
 
 Neither command changes DNS or publishes a customer's domain by itself.
+
+
+### Current website offer and delivery
+
+Default website offer:
+- **$179 one-time build**
+- **$39/month hosting & care after launch**
+- monthly care includes hosting, SSL, backups, uptime monitoring, and one small content/update request per month (roughly 30 minutes)
+- larger changes require a separate quote before work begins
+- customer retains domain control and can take the website files if they cancel care
+
+The client onboarding brief now asks for the email address where Darwin should deliver the finished proposal. It also allows categorized image uploads for:
+- logo / brand mark,
+- homepage hero,
+- products/services,
+- about/team/location.
+
+Client-uploaded images take priority. If no client images are supplied, Darwin uses at most one conservative first-party hero candidate and does not guess which scraped image belongs to which product card.
+
+When staging is ready, Mercury automatically sends the proposal email through the configured Resend account. Demo mode includes the local staging URL. A real customer email uses DARWIN_PUBLIC_STAGING_URL when a public/private staging deployment has been configured; otherwise it sends the commercial proposal without pretending the localhost URL is accessible to the customer.
+
+Mission Control highlights WORKING and WAITING agents, shows their current action, and gives each agent a lightweight character/persona so active work is easier to read at a glance.
