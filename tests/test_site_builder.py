@@ -102,22 +102,34 @@ class WebsiteBuilderTests(unittest.TestCase):
                 self.sample_spec(),
                 output,
                 logo_file="assets/client-logo-01.png",
-                hero_image="assets/client-hero-01.jpg",
+                hero_images=[
+                    "assets/client-hero-01.jpg",
+                    "assets/client-hero-02.jpg",
+                    "assets/client-hero-03.jpg",
+                ],
                 product_images=[
                     "assets/client-product-01.jpg",
                     "assets/client-product-02.jpg",
                 ],
-                about_image="assets/client-about-01.jpg",
+                about_images=[
+                    "assets/client-about-01.jpg",
+                    "assets/client-about-02.jpg",
+                ],
             )
 
             home = (output / "index.html").read_text(encoding="utf-8")
             first_collection = (output / "infrared-saunas.html").read_text(encoding="utf-8")
+            second_collection = (output / "ice-baths.html").read_text(encoding="utf-8")
             about = (output / "about.html").read_text(encoding="utf-8")
 
             self.assertIn("assets/client-logo-01.png", home)
             self.assertIn("assets/client-hero-01.jpg", home)
+            self.assertIn("assets/client-hero-02.jpg", home)
+            self.assertIn("assets/client-hero-03.jpg", home)
             self.assertIn("assets/client-product-01.jpg", first_collection)
+            self.assertIn("assets/client-product-02.jpg", second_collection)
             self.assertIn("assets/client-about-01.jpg", about)
+            self.assertIn("assets/client-about-02.jpg", about)
 
     def test_export_creates_standalone_application(self):
         with tempfile.TemporaryDirectory() as tmp:
