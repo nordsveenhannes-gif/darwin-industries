@@ -63,7 +63,10 @@ def trader_stats(conn, agent: str, asset_class: str) -> dict:
 
     pnl_rows = conn.execute(
         """
-        SELECT COALESCE(pt.pnl_usd, 0) AS pnl
+        SELECT COALESCE(pt.pnl_usd, 0) AS pnl,
+               COALESCE(pt.initial_risk_usd, 0) AS initial_risk_usd,
+               COALESCE(pt.trade_mode, ts.trade_mode, 'UNKNOWN') AS trade_mode,
+               COALESCE(pt.stress_level, ts.stress_level, 0) AS stress_level
         FROM paper_trades pt
         JOIN trade_signals ts ON ts.id=pt.signal_id
         WHERE ts.agent=? AND pt.asset_class=? AND pt.status!='OPEN'
@@ -74,10 +77,45 @@ def trader_stats(conn, agent: str, asset_class: str) -> dict:
     equity = 0.0
     peak = 0.0
     max_drawdown = 0.0
+    r_values = []
+    mode_totals = {}
+    stress_totals = {}
     for row in pnl_rows:
-        equity += float(row["pnl"] or 0)
+        pnl = float(row["pnl"] or 0)
+        equity += pnl
         peak = max(peak, equity)
         max_drawdown = max(max_drawdown, peak - equity)
+
+        risk = float(row["initial_risk_usd"] or 0)
+        if risk > 0:
+            r_value = pnl / risk
+            r_values.append(r_value)
+            mode = str(row["trade_mode"] or "UNKNOWN")
+            bucket = mode_totals.setdefault(mode, {"trades": 0, "r_sum": 0.0})
+            bucket["trades"] += 1
+            bucket["r_sum"] += r_value
+            stress = int(row["stress_level"] or 0)
+            sb = stress_totals.setdefault(stress, {"trades": 0, "r_sum": 0.0})
+            sb["trades"] += 1
+            sb["r_sum"] += r_value
+
+    expectancy_r = (sum(r_values) / len(r_values)) if r_values else 0.0
+    mode_expectancy = {
+        mode: {
+            "trades": data["trades"],
+            "expectancy_r": data["r_sum"] / data["trades"],
+        }
+        for mode, data in mode_totals.items()
+        if data["trades"]
+    }
+    stress_expectancy = {
+        str(level): {
+            "trades": data["trades"],
+            "expectancy_r": data["r_sum"] / data["trades"],
+        }
+        for level, data in stress_totals.items()
+        if data["trades"]
+    }
 
     sample_ready = closed >= 20
     promising = (
@@ -107,6 +145,10 @@ def trader_stats(conn, agent: str, asset_class: str) -> dict:
         "worst_trade": float(trades["worst_trade"] or 0),
         "profit_factor": profit_factor,
         "max_drawdown": max_drawdown,
+        "expectancy_r": expectancy_r,
+        "mode_expectancy": mode_expectancy,
+        "stress_expectancy": stress_expectancy,
+        "adaptation_review_due": closed > 0 and closed % 25 == 0,
         "sample_ready": sample_ready,
         "paper_verdict": (
             "PROMISING" if promising else "UNPROVEN" if sample_ready else "INSUFFICIENT_SAMPLE"
@@ -146,6 +188,7 @@ def main() -> None:
         )
         print(
             f"  max drawdown=$" + f"{stats['max_drawdown']:.2f}"
+            + f" | expectancy={stats['expectancy_r']:+.2f}R"
             + f" | verdict={stats['paper_verdict']}"
         )
         print(
