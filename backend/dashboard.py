@@ -1,10 +1,9 @@
-import base64
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from dotenv import load_dotenv
 
-from backend.agent_art import ACTIVE_SPRITE_B64, IDLE_SPRITE_B64, SPRITE_NAMES
+from backend.agent_art import SPRITE_NAMES, agent_asset
 from backend.branding import INTERNAL_NAME
 from backend.company_day import start_company_day_background, workday_state
 from backend.emailer import daily_send_cap, email_sending_enabled
@@ -14,10 +13,6 @@ from backend.trading_stats import all_trader_stats
 
 HOST = "127.0.0.1"
 PORT = 8765
-IDLE_SPRITE = base64.b64decode(IDLE_SPRITE_B64)
-ACTIVE_SPRITE = base64.b64decode(ACTIVE_SPRITE_B64)
-
-
 PAGE = r'''<!doctype html>
 <html>
 <head>
@@ -56,24 +51,19 @@ main{max-width:1560px;margin:auto;padding:20px}.panel{background:linear-gradient
 .agents{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.agent{position:relative;overflow:hidden;background:#0e0a14;border:1px solid #2d2239;border-radius:16px;padding:12px;min-height:186px}
 .agent.working{border-color:var(--lime);box-shadow:0 0 0 1px rgba(183,255,74,.13),0 0 32px rgba(183,255,74,.08)}
 .agent.waiting{border-color:var(--orange)}.agent.off{opacity:.6}.agent.working:after{content:"";position:absolute;inset:0 auto 0 0;width:3px;background:var(--lime)}
-.agent-top{display:flex;align-items:center;gap:12px}.portrait{width:92px;height:92px;flex:0 0 92px;background-image:url('/assets/agents-idle.webp');
- background-size:1196px 92px;background-position:var(--x) 0;background-repeat:no-repeat;image-rendering:pixelated;filter:drop-shadow(0 8px 14px rgba(0,0,0,.45))}
-.agent.working .portrait{animation:characterWork 1.05s steps(1,end) infinite}
-@keyframes characterWork{0%,49%{background-image:url('/assets/agents-idle.webp')}50%,100%{background-image:url('/assets/agents-active.webp')}}
+.agent-top{display:flex;align-items:center;gap:12px}.portrait{width:104px;height:104px;flex:0 0 104px;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 8px 14px rgba(0,0,0,.45))}
 .name{font:1000 16px "Segoe UI Variable Display","Arial Black",sans-serif}.role{color:var(--muted);font-size:10px;margin-top:2px}.status{display:inline-block;margin-top:7px;padding:4px 8px;border-radius:999px;background:#21182c;color:var(--cyan);font:800 9px ui-monospace,Consolas,monospace;letter-spacing:.08em}
 .working-badge{display:inline-flex;align-items:center;gap:6px;color:var(--lime);font:900 9px ui-monospace,Consolas,monospace;letter-spacing:.1em;margin-top:7px}
 .working-badge:before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;box-shadow:0 0 12px currentColor}
 .now-label{margin-top:10px;color:#766b82;font:800 9px ui-monospace,Consolas,monospace;letter-spacing:.12em;text-transform:uppercase}.action{font-size:12px;margin-top:3px;min-height:34px}
 .quip{color:#756a80;font-size:10px;font-style:italic;margin-top:6px}.active-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
-.active-card{display:flex;align-items:center;gap:10px;background:#0d0a12;border:1px solid #2d2239;border-radius:14px;padding:10px}.active-card .portrait{width:64px;height:64px;flex-basis:64px;background-size:832px 64px}
-.active-card.working .portrait{animation:characterWorkSmall 1.05s steps(1,end) infinite}
-@keyframes characterWorkSmall{0%,49%{background-image:url('/assets/agents-idle.webp')}50%,100%{background-image:url('/assets/agents-active.webp')}}
+.active-card{display:flex;align-items:center;gap:10px;background:#0d0a12;border:1px solid #2d2239;border-radius:14px;padding:10px}.active-card .portrait{width:72px;height:72px;flex-basis:72px}
 a{color:var(--lime)}table{width:100%;border-collapse:collapse;font-size:12px}td,th{padding:8px;border-bottom:1px solid #2b2136;text-align:left;vertical-align:top}th{color:var(--muted);font:800 10px ui-monospace,Consolas,monospace;text-transform:uppercase;letter-spacing:.08em}.scroll{overflow:auto}
 .note{color:#8d8198;font-size:11px}.website-head{display:grid;grid-template-columns:1.3fr .7fr;gap:10px}
 .pill{display:inline-block;padding:4px 8px;border:1px solid #3a2a48;border-radius:999px;color:#cabed5;font:700 10px ui-monospace,Consolas,monospace}
 @media(max-width:1150px){.agents{grid-template-columns:repeat(3,1fr)}.metrics{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:850px){.agents,.active-grid{grid-template-columns:repeat(2,1fr)}.website-head{grid-template-columns:1fr}}
-@media(max-width:560px){header{align-items:flex-start;flex-direction:column}.run-wrap{width:100%;justify-content:space-between}.agents,.active-grid,.metrics{grid-template-columns:1fr}.portrait{width:80px;height:80px;flex-basis:80px;background-size:1040px 80px}}
+@media(max-width:560px){header{align-items:flex-start;flex-direction:column}.run-wrap{width:100%;justify-content:space-between}.agents,.active-grid,.metrics{grid-template-columns:1fr}.portrait{width:82px;height:82px;flex-basis:82px}}
 </style>
 </head>
 <body>
@@ -109,8 +99,8 @@ const quips={
 function esc(v){v=(v==null?'':String(v));return v.replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
 function metric(k,v){return '<div class="metric"><span>'+esc(k)+'</span><b>'+esc(v)+'</b></div>'}
 function stateClass(status){const x=String(status||'').toUpperCase();if(x.includes('WORKING')||x.includes('ON_SHIFT'))return'working';if(x.includes('WAITING')||x.includes('NEEDED')||x.includes('BLOCKED'))return'waiting';if(x.includes('OFF')||x.includes('STOPPED'))return'off';return'ready'}
-function portrait(name,small=false){const i=Math.max(0,spriteOrder.indexOf(name));const tile=small?64:92;return '<div class="portrait" style="--x:-'+(i*tile)+'px"></div>'}
-function card(a){const cls=stateClass(a.status);const badge=cls==='working'?'<span class="working-badge">WORKING</span>':'<span class="status">'+esc(a.status)+'</span>';return '<div class="agent '+cls+'"><div class="agent-top">'+portrait(a.agent)+'<div><div class="name">'+esc(a.agent)+'</div><div class="role">'+esc(a.title)+'</div>'+badge+'</div></div><div class="now-label">Now doing</div><div class="action">'+esc(a.last_action||'Nothing assigned')+'</div><div class="quip">'+esc(quips[a.agent]||'Still awaiting a sufficiently dramatic backstory.')+'</div><div class="small">confidence '+esc(a.confidence)+' · stress '+esc(a.stress)+' · motivation '+esc(a.motivation)+'</div></div>'}
+function portrait(name,working=false){const mode=working?'working.gif':'idle.png';return '<img class="portrait" alt="" src="/assets/agent/'+encodeURIComponent(name)+'/'+mode+'">'}
+function card(a){const cls=stateClass(a.status);const badge=cls==='working'?'<span class="working-badge">WORKING</span>':'<span class="status">'+esc(a.status)+'</span>';return '<div class="agent '+cls+'"><div class="agent-top">'+portrait(a.agent,cls==='working')+'<div><div class="name">'+esc(a.agent)+'</div><div class="role">'+esc(a.title)+'</div>'+badge+'</div></div><div class="now-label">Now doing</div><div class="action">'+esc(a.last_action||'Nothing assigned')+'</div><div class="quip">'+esc(quips[a.agent]||'Still awaiting a sufficiently dramatic backstory.')+'</div><div class="small">confidence '+esc(a.confidence)+' · stress '+esc(a.stress)+' · motivation '+esc(a.motivation)+'</div></div>'}
 async function startDay(){
  const b=document.getElementById('runBtn');const s=document.getElementById('runState');b.disabled=true;s.textContent='waking the creatures...';
  try{const r=await fetch('/api/run',{method:'POST',headers:{'X-Shenanigan-Action':'run'}});const d=await r.json();s.textContent=d.started?'6-hour workday started':(d.reason||'already running');}
@@ -122,7 +112,7 @@ async function refresh(){
   const rb=document.getElementById('runBtn');rb.disabled=!!cd.active;rb.textContent=cd.active?'RUNNING':'RUN';document.getElementById('runState').textContent=cd.active?'company day active · '+(cd.hours||6)+'h':'idle · press RUN for a fresh 6-hour day';
   document.getElementById('metrics').innerHTML=metric('Company day',cd.active?'ACTIVE':'IDLE')+metric('Prospects',m.total_prospects)+metric('Outreach',m.outreach_sent)+metric('Paper P&L USD',Number(m.paper_pnl||0).toFixed(2))+metric('Open paper trades',m.open_paper_trades||0);
   const working=d.agents.filter(a=>['working','waiting'].includes(stateClass(a.status)));
-  document.getElementById('activeAgents').innerHTML=working.length?working.map(a=>'<div class="active-card '+stateClass(a.status)+'">'+portrait(a.agent,true)+'<div><b>'+esc(a.agent)+' · '+esc(a.status)+'</b><div class="small">'+esc(a.last_action||'Nothing assigned')+'</div></div></div>').join(''):'<div class="note">Nobody is working. Either the shift ended or the agents have successfully automated themselves out of a job.</div>';
+  document.getElementById('activeAgents').innerHTML=working.length?working.map(a=>'<div class="active-card '+stateClass(a.status)+'">'+portrait(a.agent,stateClass(a.status)==='working')+'<div><b>'+esc(a.agent)+' · '+esc(a.status)+'</b><div class="small">'+esc(a.last_action||'Nothing assigned')+'</div></div></div>').join(''):'<div class="note">Nobody is working. Either the shift ended or the agents have successfully automated themselves out of a job.</div>';
   document.getElementById('agents').innerHTML=d.agents.map(card).join('');
   const wp=d.website_project;
   if(wp){
@@ -180,10 +170,15 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(PAGE.encode("utf-8"),"text/html; charset=utf-8")
         if self.path.startswith("/api/state"):
             return self._send(json.dumps(state_payload(),ensure_ascii=False).encode("utf-8"),"application/json; charset=utf-8")
-        if self.path=="/assets/agents-idle.webp":
-            return self._send(IDLE_SPRITE,"image/webp")
-        if self.path=="/assets/agents-active.webp":
-            return self._send(ACTIVE_SPRITE,"image/webp")
+        if self.path.startswith("/assets/agent/"):
+            parts=self.path.split("/")
+            if len(parts)>=5:
+                from urllib.parse import unquote
+                name=unquote(parts[3])
+                working=parts[4].startswith("working")
+                if name in SPRITE_NAMES:
+                    body,mime=agent_asset(name,working,110 if not working else 110)
+                    return self._send(body,mime)
         self.send_response(404);self.end_headers()
 
     def do_POST(self):
