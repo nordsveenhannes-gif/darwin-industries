@@ -18,6 +18,7 @@ from backend.site_builder import render_site, validate_site
 from backend.site_export import export_deployment_package
 from backend.site_server import serve_site
 from backend.storage import connect, init_db, now_iso
+from backend.website_job import _sentinel_safe_mode_spec
 
 
 def _set_agent(conn, agent: str, status: str, action: str) -> None:
@@ -43,7 +44,7 @@ def _qa_passed(text: str) -> bool:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Apply one customer revision round to a Darwin staging website."
+        description="Apply one customer revision round to a Shenanigan Systems staging website."
     )
     parser.add_argument("--project-id", type=int, required=True)
     parser.add_argument("--feedback", required=True)
@@ -179,11 +180,22 @@ invented claims/testimonials/results, and does not weaken customer ownership or 
         ).strip()
 
         if not _qa_passed(qa):
-            _event(conn, args.project_id, "Sentinel", "REVISION_QA_FLAG", qa)
-            _set_agent(conn, "Sentinel", "READY", "Revision blocked by QA")
-            print("Revision was blocked by Sentinel. Existing staging build was left unchanged.")
-            conn.close()
-            return
+            _event(
+                conn,
+                args.project_id,
+                "Sentinel",
+                "REVISION_SAFE_MODE",
+                "Revision QA found unresolved risk. The revision is not stopped; disputed/unsafe content is stripped or deferred.",
+            )
+            revised = _sentinel_safe_mode_spec(revised, qa)
+            qa = (
+                "STATUS: SAFE_MODE\n"
+                "REASONS:\n- Revision contained an unresolved staging concern.\n"
+                "REQUIRED_CHANGES:\n- Risky or unsupported content was stripped/deferred automatically.\n"
+                + qa
+            )
+            _set_agent(conn, "Sentinel", "READY", "Revision safe mode applied; public launch remains gated")
+            print("Sentinel safe mode applied to revision; rebuild continues.")
 
         asset_dir = site_dir / "assets"
         logo_paths = sorted(p for p in asset_dir.glob("client-logo-*") if p.is_file())
@@ -207,7 +219,27 @@ invented claims/testimonials/results, and does not weaken customer ownership or 
         )
         errors = validate_site(site_dir)
         if errors:
-            raise RuntimeError("Revised site validation failed: " + " | ".join(errors))
+            _event(
+                conn,
+                args.project_id,
+                "Midas",
+                "REVISION_RENDER_RECOVERY",
+                "Revision validation failed; rebuilding the conservative safe-mode version automatically: "
+                + " | ".join(errors[:8]),
+            )
+            revised = _sentinel_safe_mode_spec(revised, " | ".join(errors))
+            render_site(
+                revised,
+                site_dir,
+                image_files=legacy_images,
+                logo_file=f"assets/{logo_paths[0].name}" if logo_paths else None,
+                hero_images=[f"assets/{p.name}" for p in hero_paths],
+                product_images=[f"assets/{p.name}" for p in product_paths],
+                about_images=[f"assets/{p.name}" for p in about_paths],
+            )
+            errors = validate_site(site_dir)
+            if errors:
+                raise RuntimeError("Safe-mode revision validation failed: " + " | ".join(errors))
 
         spec_path.write_text(revised.model_dump_json(indent=2), encoding="utf-8")
         (project_root / "ux-review.json").write_text(
