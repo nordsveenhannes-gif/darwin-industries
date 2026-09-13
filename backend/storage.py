@@ -218,6 +218,21 @@ def init_db(conn: sqlite3.Connection) -> None:
             FOREIGN KEY(signal_id) REFERENCES trade_signals(id)
         );
 
+        CREATE TABLE IF NOT EXISTS trading_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            started_at TEXT NOT NULL,
+            ended_at TEXT,
+            target_hours REAL NOT NULL DEFAULT 6,
+            status TEXT NOT NULL DEFAULT 'RUNNING',
+            initial_equity_usd REAL NOT NULL DEFAULT 100,
+            cycles_completed INTEGER NOT NULL DEFAULT 0,
+            model_calls_used INTEGER NOT NULL DEFAULT 0,
+            last_trade_at TEXT,
+            stress_level INTEGER NOT NULL DEFAULT 0,
+            defensive_mode INTEGER NOT NULL DEFAULT 0,
+            note TEXT
+        );
+
         CREATE TABLE IF NOT EXISTS website_projects (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             business_name TEXT NOT NULL,
@@ -314,6 +329,9 @@ def init_db(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_paper_trades_status
             ON paper_trades(status, asset_class);
 
+        CREATE INDEX IF NOT EXISTS idx_trading_sessions_started
+            ON trading_sessions(started_at, status);
+
         CREATE INDEX IF NOT EXISTS idx_journey_events
             ON journey_events(journey_id, id);
 
@@ -351,6 +369,24 @@ def init_db(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "paper_trades", "gross_pnl_usd", "REAL")
     _ensure_column(conn, "paper_trades", "fees_usd", "REAL")
     _ensure_column(conn, "paper_trades", "slippage_bps", "REAL")
+
+    _ensure_column(conn, "trade_signals", "session_id", "INTEGER")
+    _ensure_column(conn, "trade_signals", "token_address", "TEXT")
+    _ensure_column(conn, "trade_signals", "trade_mode", "TEXT")
+    _ensure_column(conn, "trade_signals", "setup_score", "INTEGER")
+    _ensure_column(conn, "trade_signals", "stress_level", "INTEGER")
+    _ensure_column(conn, "trade_signals", "signals_json", "TEXT")
+    _ensure_column(conn, "trade_signals", "expected_round_trip_cost_pct", "REAL")
+    _ensure_column(conn, "trade_signals", "expected_first_move_pct", "REAL")
+    _ensure_column(conn, "trade_signals", "market_source", "TEXT")
+
+    _ensure_column(conn, "paper_trades", "session_id", "INTEGER")
+    _ensure_column(conn, "paper_trades", "token_address", "TEXT")
+    _ensure_column(conn, "paper_trades", "trade_mode", "TEXT")
+    _ensure_column(conn, "paper_trades", "setup_score", "INTEGER")
+    _ensure_column(conn, "paper_trades", "stress_level", "INTEGER")
+    _ensure_column(conn, "paper_trades", "risk_pct_equity", "REAL")
+    _ensure_column(conn, "paper_trades", "initial_risk_usd", "REAL")
 
     _ensure_column(conn, "website_projects", "revision_rounds_used", "INTEGER NOT NULL DEFAULT 0")
     _ensure_column(conn, "website_projects", "customer_approval_status", "TEXT NOT NULL DEFAULT 'PENDING'")
