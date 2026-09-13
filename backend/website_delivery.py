@@ -48,8 +48,8 @@ def send_website_ready_email(
 Thanks for the brief. We’ve finished the first website concept for {business_name}.
 {preview_line}
 Our proposal:
-- Website build: \${build_price:,.0f} one-time
-- Hosting & care: \${monthly_price:,.0f}/month
+- Website build: ${build_price:,.0f} one-time
+- Hosting & care: ${monthly_price:,.0f}/month
 
 The monthly plan includes hosting, SSL, backups, uptime monitoring, and one small content/update request per month (up to roughly 30 minutes of work). Larger changes are quoted before we start them, so there are no surprise fees.
 
