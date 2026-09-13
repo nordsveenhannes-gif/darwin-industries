@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 from backend.agents.apex import StockTradeIdea, build_apex
 from backend.agents.circuit import RiskDecision, build_circuit
 from backend.agents.raptor import MemeTradeIdea, build_raptor
+from backend.meme_strategy import compute_stress_level, required_score, score_candidates
 from backend.storage import connect, init_db, now_iso
 
 
@@ -23,7 +24,7 @@ DEXSCREENER_BOOSTS = "https://api.dexscreener.com/token-boosts/top/v1"
 DEXSCREENER_TOKENS = "https://api.dexscreener.com/tokens/v1/solana/{addresses}"
 GECKO_OHLCV = (
     "https://api.geckoterminal.com/api/v2/networks/solana/pools/"
-    "{pool_address}/ohlcv/minute?aggregate=5&limit=48"
+    "{pool_address}/ohlcv/minute?aggregate=1&limit=120"
 )
 
 
@@ -53,11 +54,16 @@ def _sim_slippage_bps(asset_class: str) -> float:
 
 def _sim_fee_usd(asset_class: str, notional_usd: float) -> float:
     if asset_class == "MEME":
-        mode = os.getenv("DARWIN_MEME_SIM_FEE_MODE", "moonshot_app").strip().lower()
+        mode = os.getenv("DARWIN_MEME_SIM_FEE_MODE", "dex_route").strip().lower()
         if mode == "moonshot_app":
             if notional_usd <= 100:
                 return max(0.99, notional_usd * 0.025)
             return notional_usd * 0.01
+        try:
+            bps = float(os.getenv("DARWIN_MEME_SIM_ROUTE_FEE_BPS_PER_SIDE", "30"))
+        except ValueError:
+            bps = 30.0
+        return notional_usd * max(0.0, min(bps, 500.0)) / 10000.0
     return 0.0
 
 
