@@ -185,12 +185,26 @@ invented claims/testimonials/results, and does not weaken customer ownership or 
             conn.close()
             return
 
-        image_files = [
+        asset_dir = site_dir / "assets"
+        logo_paths = sorted(p for p in asset_dir.glob("client-logo-*") if p.is_file())
+        hero_paths = sorted(p for p in asset_dir.glob("client-hero-*") if p.is_file())
+        product_paths = sorted(p for p in asset_dir.glob("client-product-*") if p.is_file())
+        about_paths = sorted(p for p in asset_dir.glob("client-about-*") if p.is_file())
+
+        legacy_images = [
             f"assets/{p.name}"
-            for p in sorted((site_dir / "assets").glob("customer-*"))
+            for p in sorted(asset_dir.glob("customer-*"))
             if p.is_file()
         ]
-        render_site(revised, site_dir, image_files=image_files)
+        render_site(
+            revised,
+            site_dir,
+            image_files=legacy_images,
+            logo_file=f"assets/{logo_paths[0].name}" if logo_paths else None,
+            hero_image=f"assets/{hero_paths[0].name}" if hero_paths else None,
+            product_images=[f"assets/{p.name}" for p in product_paths],
+            about_image=f"assets/{about_paths[0].name}" if about_paths else None,
+        )
         errors = validate_site(site_dir)
         if errors:
             raise RuntimeError("Revised site validation failed: " + " | ".join(errors))
